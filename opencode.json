@@ -1,0 +1,149 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "seo-slop",
+  "username": "seo-operator",
+  "agent": {
+    "seo-slop": {
+      "description": "SEO Slop orchestrator — coordinates SEO audits, research, and strategy across 8 specialist subagents. Use for any SEO workflow: audits, keyword research, content strategy, schema, backlinks, local SEO, Google APIs, vault management.",
+      "mode": "primary",
+      "permission": {
+        "task": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-technical": {
+      "description": "Technical SEO specialist: crawlability, indexability, meta tags, performance (CWV), sitemaps, hreflang, security headers, JS rendering.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-content": {
+      "description": "Content & strategy specialist: E-E-A-T analysis, brand positioning, BEAST planning, FLOW framework, content briefs, topic clustering, programmatic SEO.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-keywords": {
+      "description": "Keywords & SERP specialist: keyword research (volume, difficulty, intent), SERP analysis, SXO scoring, competitor comparison page generation.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-backlinks": {
+      "description": "Backlinks & off-page specialist: domain authority, anchor text distribution, toxic-link detection, CommonCrawl and Bing fallback.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-schema": {
+      "description": "Schema & structured data specialist: JSON-LD detection, validation, and generation against Schema.org standards. Gates for deprecated types.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-local": {
+      "description": "Local & maps specialist: Google Business Profile, NAP consistency, citations, geo-grid rankings, GEO/AI-search readiness, e-commerce SEO.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-google": {
+      "description": "Google APIs specialist: PageSpeed Insights, CrUX history, Search Console queries, GA4 reporting, image audit, drift monitoring.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    },
+    "seo-vault": {
+      "description": "Vault health specialist: schema drift linting, dead wikilinks, unresolved tokens, evidence thresholds, archival snapshots, brain review for hallucinations.",
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "bash": "allow",
+        "edit": "deny"
+      }
+    }
+  },
+  "mcp": {
+    "vault": {
+      "type": "local",
+      "command": ["node", "mcp/vault/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}",
+        "SEO_OBSIDIAN_VAULT": "{env:SEO_OBSIDIAN_VAULT}"
+      }
+    },
+    "dataforseo": {
+      "type": "local",
+      "command": ["node", "mcp/dataforseo/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "DATAFORSEO_LOGIN": "{env:DATAFORSEO_LOGIN}",
+        "DATAFORSEO_PASSWORD": "{env:DATAFORSEO_PASSWORD}"
+      }
+    },
+    "google-apis": {
+      "type": "local",
+      "command": ["node", "mcp/google-apis/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
+        "GOOGLE_APPLICATION_CREDENTIALS": "{env:GOOGLE_APPLICATION_CREDENTIALS}"
+      }
+    },
+    "firecrawl": {
+      "type": "local",
+      "command": ["node", "mcp/firecrawl/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}",
+        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}"
+      }
+    },
+    "python-scripts": {
+      "type": "local",
+      "command": ["node", "mcp/python-scripts/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "PYTHON_SCRIPTS_DIR": "vendored/claude-seo/scripts",
+        "PYTHON_BIN": "{env:PYTHON_BIN}",
+        "BING_WEBMASTER_API_KEY": "{env:BING_WEBMASTER_API_KEY}"
+      }
+    }
+  },
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": {
+      "pnpm *": "allow",
+      "node mcp/*": "allow",
+      "python3 *": "allow",
+      "*": "ask"
+    }
+  }
+}
