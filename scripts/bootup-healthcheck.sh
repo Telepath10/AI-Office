@@ -124,19 +124,26 @@ check_key_presence "GOOGLE_API_KEY"       "${GOOGLE_API_KEY:-}"
 check_key_presence "GOOGLE_APPLICATION_CREDENTIALS" "${GOOGLE_APPLICATION_CREDENTIALS:-}"
 check_key_presence "BING_WEBMASTER_API_KEY" "${BING_WEBMASTER_API_KEY:-}"
 check_key_presence "FIRECRAWL_API_KEY"    "${FIRECRAWL_API_KEY:-}"
-check_key_presence "MOZ_ACCESS_ID"        "${MOZ_ACCESS_ID:-} / ${MOZ_SECRET_KEY:-}"
+if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
+  PASS "MOZ_ACCESS_ID / MOZ_SECRET_KEY — set"; ok
+else
+  WARN "MOZ_ACCESS_ID / MOZ_SECRET_KEY — not configured (optional; DataForSEO is primary)"; wrn
+fi
 
 if [ "$LIVE" -eq 1 ]; then
   HDR "4b. Live API smoke tests"
-  # DataForSEO — cheap ping on a live endpoint (1 result)
+  # DataForSEO — free balance endpoint (no task billing)
   if [ -n "${DATAFORSEO_LOGIN:-}" ] && [ -n "${DATAFORSEO_PASSWORD:-}" ]; then
     code=$(curl -s -o /tmp/dfs_health.json -w "%{http_code}" -m 20 \
       -u "$DATAFORSEO_LOGIN:$DATAFORSEO_PASSWORD" \
-      -H "Content-Type: application/json" \
-      -d '[{"language_code":"en","location_code":2840,"keywords":["seo"]}]' \
-      "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live")
-    if [ "$code" = "200" ] && grep -q '"status_code":20000' /tmp/dfs_health.json; then
-      PASS "DataForSEO — live OK"; ok
+      "https://api.dataforseo.com/v3/appendix/user_data")
+    if [ "$code" = "200" ] && grep -qE '"status_code"[[:space:]]*:[[:space:]]*20000' /tmp/dfs_health.json; then
+      bal=$(jq -r '.tasks[0].result[0].money.balance // "?"' /tmp/dfs_health.json 2>/dev/null)
+      if [ "$bal" != "?" ] && [ "$(jq -r 'if .tasks[0].result[0].money.balance > 0 then 1 else 0 end' /tmp/dfs_health.json 2>/dev/null)" = "1" ]; then
+        PASS "DataForSEO — live OK (\$$(printf '%.2f' "$bal") balance)"; ok
+      else
+        WARN "DataForSEO — credentials valid but balance \$"$(printf '%.2f' "$bal")" (top up at app.dataforseo.com; min \$50)"; wrn
+      fi
     else
       FAIL "DataForSEO — HTTP $code $(head -c 160 /tmp/dfs_health.json)"; err
     fi
@@ -145,11 +152,11 @@ if [ "$LIVE" -eq 1 ]; then
     WARN "DataForSEO — skipped (no creds)"; wrn
   fi
 
-  # Firecrawl — credits endpoint (free)
+  # Firecrawl — credit usage endpoint (free)
   if [ -n "${FIRECRAWL_API_KEY:-}" ]; then
     code=$(curl -s -o /tmp/fc_health.json -w "%{http_code}" -m 20 \
       -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
-      "https://api.firecrawl.dev/v1/credits")
+      "https://api.firecrawl.dev/v2/team/credit-usage")
     if [ "$code" = "200" ] && grep -q '"success":true' /tmp/fc_health.json; then
       PASS "Firecrawl — live OK ($(jq -r '.data.remainingCredits // "?"' /tmp/fc_health.json 2>/dev/null) credits left)"; ok
     else
@@ -174,12 +181,14 @@ if [ "$LIVE" -eq 1 ]; then
     WARN "Google PSI — skipped (no real GOOGLE_API_KEY)"; wrn
   fi
 
-  # Bing Webmaster — quota check (free)
+  # Bing Webmaster — list verified sites (free, validates the key)
   if [ -n "${BING_WEBMASTER_API_KEY:-}" ] && ! placeholder "${BING_WEBMASTER_API_KEY:-}"; then
     code=$(curl -s -o /tmp/bing_health.json -w "%{http_code}" -m 20 \
-      "https://ssl.bing.com/webmaster/api.svc/json/GetQuota?apikey=$BING_WEBMASTER_API_KEY")
+      "https://ssl.bing.com/webmaster/api.svc/json/GetUserSites?apikey=$BING_WEBMASTER_API_KEY")
     if [ "$code" = "200" ]; then
-      PASS "Bing Webmaster — live OK"; ok
+      sites=$(jq -r '.d | length' /tmp/bing_health.json 2>/dev/null || echo "?")
+      PASS "Bing Webmaster — live OK ($sites site(s) verified)"
+      ok
     else
       FAIL "Bing Webmaster — HTTP $code $(head -c 160 /tmp/bing_health.json)"; err
     fi
@@ -253,16 +262,16 @@ else
   WARN "Google ADC — no valid credentials file (GSC/GA4 blocked until gcloud login)"; wrn
 fi
 
-# vendored python scripts compile
+# vendored python scripts — no-write syntax check (ast.parse, no .pyc output)
 PYCOMPILE_FAIL=0
 for f in "$ROOT"/vendored/claude-seo/scripts/*.py; do
   [ -f "$f" ] || continue
-  if ! "$PYBIN" -m py_compile "$f" 2>/dev/null; then
-    WARN "script fails to compile: $(basename "$f")"; wrn
+  if ! "$PYBIN" -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f" 2>/dev/null; then
+    WARN "script fails to parse: $(basename "$f")"; wrn
     PYCOMPILE_FAIL=1
   fi
 done
-[ "$PYCOMPILE_FAIL" -eq 0 ] && PASS "all vendored python scripts compile" && ok
+[ "$PYCOMPILE_FAIL" -eq 0 ] && PASS "all vendored python scripts parse" && ok
 
 # squirrel CLI (audit skill)
 if command -v squirrel >/dev/null 2>&1; then
@@ -295,7 +304,7 @@ TMP=$(find "$ROOT" -name "*.tmp.*" -not -path "*/node_modules/*" 2>/dev/null | w
 [ "$TMP" -gt 0 ] && WARN "$TMP temp file(s)" && wrn || { PASS "no .tmp.* files"; ok; }
 
 # stale .published (canonical copy is in Obsidian)
-for b in "${BUSINESSES[@]}"; do
+for b in "${BUSINESSES[@]:-}"; do
   pn=$(find "$BRAIN/$b/.published" -type f 2>/dev/null | wc -l | tr -d ' ')
   [ "$pn" -gt 0 ] && INFO "$b: $pn file(s) in .published (cleanup 30-day retention)" && wrn
 done
@@ -311,8 +320,8 @@ fi
 
 # log.md append
 if [ -d "$BRAIN" ]; then
-  LOG_LINES="- $(date -u +%Y-%m-%dT%H:%M:%SZ) — bootup health check: $PASS_COUNT pass, $WARN_COUNT warn, $FAIL_COUNT fail${LIVE:+ (live)}"
-  for b in "${BUSINESSES[@]}"; do :; done
+  LOG_LINES="- $(date -u +%Y-%m-%dT%H:%M:%SZ) — bootup health check: $PASS_COUNT pass, $WARN_COUNT warn, $FAIL_COUNT fail"
+  [ "$LIVE" -eq 1 ] && LOG_LINES="$LOG_LINES (live)"
   { printf '\n%s\n' "$LOG_LINES"; } >> "$BRAIN/log.md" 2>/dev/null || INFO "note: could not append to $BRAIN/log.md"
 fi
 
