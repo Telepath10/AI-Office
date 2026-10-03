@@ -88,7 +88,9 @@ def validate(data):
     errors = []
     if not isinstance(data, dict):
         return ["audit-data must be a JSON object"]
-    _req_str(data, "audit_type", "audit", errors)
+    audit_type = _req_str(data, "audit_type", "audit", errors)
+    if audit_type and not re.fullmatch(r"[a-z0-9-]+", audit_type):
+        errors.append(f'audit.audit_type "{audit_type}" must match ^[a-z0-9-]+$')
     _req_str(data, "summary", "audit", errors)
     cats = data.get("categories_assessed")
     if not isinstance(cats, list) or not cats:

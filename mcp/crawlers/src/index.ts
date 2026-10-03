@@ -11,13 +11,15 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { brainRoot, fitResponse, isValidClient, isWithin, redact, tail } from "./util.js";
+import { creditsOf, firecrawlSpendReport, recordFirecrawl } from "./spend.js";
 
 // ---------------------------------------------------------------------------
 // Firecrawl config
 // ---------------------------------------------------------------------------
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
-const SEO_BRAIN_HOME = (process.env.SEO_BRAIN_HOME || "").trim();
 const FIRECRAWL_BASE = "https://api.firecrawl.dev";
+const FIRECRAWL_TIMEOUT_MS = parseInt(process.env.FIRECRAWL_TIMEOUT_MS || "90000", 10);
 
 // ---------------------------------------------------------------------------
 // Python / crawlers config
@@ -51,6 +53,7 @@ function firecrawlAuth(): string {
 async function firecrawlApi(route: string, init?: RequestInit): Promise<any> {
   const res = await fetch(`${FIRECRAWL_BASE}${route}`, {
     ...init,
+    signal: AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS),
     headers: {
       Authorization: firecrawlAuth(),
       "Content-Type": "application/json",
@@ -65,10 +68,44 @@ async function firecrawlApi(route: string, init?: RequestInit): Promise<any> {
       // ignore
     }
     throw new Error(
-      `Firecrawl API error: ${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 300)}` : ""}`,
+      `Firecrawl API error: ${res.status} ${res.statusText}${detail ? ` — ${redact(tail(detail, 300))}` : ""}`,
     );
   }
   return res.json();
+}
+
+/**
+ * Firecrawl call + credit ledger entry. Failed calls are recorded with 0 credits and rethrown.
+ */
+async function firecrawlTracked(
+  tool: string,
+  target: string,
+  slug: string | undefined,
+  route: string,
+  init: RequestInit | undefined,
+  fallbackCredits: number,
+): Promise<any> {
+  try {
+    const data = await firecrawlApi(route, init);
+    await recordFirecrawl({
+      client_slug: slug ?? null,
+      tool,
+      target,
+      credits: creditsOf(data, fallbackCredits),
+      ok: data?.success !== false,
+    });
+    return data;
+  } catch (err) {
+    await recordFirecrawl({ client_slug: slug ?? null, tool, target, credits: 0, ok: false });
+    throw err;
+  }
+}
+
+function errText(err: unknown): string {
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return `timed out after ${FIRECRAWL_TIMEOUT_MS} ms (set FIRECRAWL_TIMEOUT_MS to change)`;
+  }
+  return redact(err instanceof Error ? err.message : String(err));
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +139,7 @@ function runPython(args: string[], timeoutMs = PYTHON_TIMEOUT_MS): Promise<strin
       if (code === 0) {
         resolve(stdout);
       } else {
-        reject(new Error(`Script exited with code ${code}\nstderr:\n${stderr}`));
+        reject(new Error(`Script exited with code ${code}\nstderr (tail):\n${redact(tail(stderr))}`));
       }
     });
 
@@ -140,19 +177,63 @@ function ensureWithin(root: string, target: string): string {
   return target;
 }
 
-async function resolveOutputDir(
-  outputDir: string | undefined,
-  clientSlug: string | undefined,
-  url: string,
-): Promise<string> {
-  if (outputDir) return path.resolve(outputDir);
-  const hostname = new URL(url).hostname || "site";
-  if (clientSlug && SEO_BRAIN_HOME) {
-    return path.join(SEO_BRAIN_HOME, clientSlug, ".raw", "crawlers", hostname);
+/** <brain>/<slug> for a valid client slug, undefined when no slug; throws on a bad slug. */
+function clientDir(clientSlug: string | undefined): string | undefined {
+  if (clientSlug === undefined || clientSlug === null || clientSlug === "") return undefined;
+  if (typeof clientSlug !== "string" || !/^[a-z0-9-]+$/.test(clientSlug)) {
+    throw new Error(`invalid client_slug ${JSON.stringify(clientSlug)}: use lowercase letters, digits and hyphens only`);
   }
-  throw new Error(
-    "crawlers_crawl needs an output_dir, or client_slug together with SEO_BRAIN_HOME, so results can be saved",
-  );
+  if (!isValidClient(clientSlug)) {
+    throw new Error(
+      `unknown client_slug "${clientSlug}": no ${path.join(brainRoot(), clientSlug, ".manifest.json")}. Scaffold/onboard the client first.`,
+    );
+  }
+  return path.join(brainRoot(), clientSlug);
+}
+
+/**
+ * Crawl output directory. Always inside the brain:
+ *   with client_slug  -> <brain>/<slug>/.raw/crawlers/...
+ *   without           -> <brain>/_system/crawls/...
+ * A given output_dir (absolute, or relative to that root) must resolve inside it.
+ */
+function resolveOutputDir(outputDir: string | undefined, clientSlug: string | undefined, url: string): string {
+  const dir = clientDir(clientSlug);
+  const allowed = dir ? path.join(dir, ".raw", "crawlers") : path.join(brainRoot(), "_system", "crawls");
+  if (!outputDir) {
+    let host = "site";
+    try { host = new URL(url).hostname || "site"; } catch { /* keep default */ }
+    return path.join(allowed, sanitizeSegment(host));
+  }
+  const resolved = path.resolve(allowed, outputDir);
+  if (!isWithin(allowed, resolved)) {
+    throw new Error(
+      `output_dir must be inside ${allowed} (got ${resolved}). ` +
+        `Omit output_dir to use the default, or pass a sub-folder of that directory.`,
+    );
+  }
+  return resolved;
+}
+
+/** pause_file must live in the client dir (with slug) or <brain>/_system. */
+function resolvePauseFile(pauseFile: string, clientSlug: string | undefined): string {
+  const dir = clientDir(clientSlug);
+  const system = path.join(brainRoot(), "_system");
+  const resolved = path.resolve(dir ?? system, pauseFile);
+  if (!isWithin(system, resolved) && !(dir && isWithin(dir, resolved))) {
+    throw new Error(`pause_file must be inside ${dir ? `${dir} or ` : ""}${system} (got ${resolved})`);
+  }
+  return resolved;
+}
+
+const SLUG_PROP = {
+  type: "string",
+  description:
+    "Optional client slug: Firecrawl credits go to <brain>/<slug>/meta/spend/firecrawl.jsonl and oversized responses are saved to <brain>/<slug>/.raw/crawlers/",
+};
+
+async function textResult(text: string, tool: string, slug: unknown) {
+  return { content: [{ type: "text", text: await fitResponse(text, tool, slug, ".raw/crawlers") }] };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +264,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             default: true,
             description: "Attempt Cloudflare bypass when using Scrapling",
           },
+          client_slug: SLUG_PROP,
         },
         required: ["url"],
       },
@@ -215,6 +297,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           proxy: { type: "string", description: "Proxy URL (optional)" },
           css_selector: { type: "string", description: "CSS selector to extract (optional)" },
+          client_slug: SLUG_PROP,
         },
         required: ["url"],
       },
@@ -241,6 +324,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           waitFor: { type: "number", description: "Extra delay in ms for lazy-loaded content" },
           mobile: { type: "boolean", default: false, description: "Emulate a mobile device" },
+          client_slug: SLUG_PROP,
         },
         required: ["url"],
       },
@@ -259,6 +343,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           wait_for: { type: "string", description: "Wait condition e.g. css:.loaded (optional)" },
           screenshot: { type: "boolean", default: false, description: "Capture screenshot" },
           cache_bypass: { type: "boolean", default: false, description: "Bypass cache" },
+          client_slug: SLUG_PROP,
         },
         required: ["url"],
       },
@@ -281,6 +366,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           include_subdomains: { type: "boolean", default: true },
           search: { type: "string", description: "Filter links by text match (e.g. 'blog')" },
+          client_slug: SLUG_PROP,
         },
         required: ["url"],
       },
@@ -297,9 +383,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           url: { type: "string", description: "Base URL to crawl" },
           client_slug: {
             type: "string",
-            description: "Optional client slug — saves to <SEO_BRAIN_HOME>/<slug>/.raw/crawlers/<host>/",
+            description: "Optional client slug (must be an onboarded client) — saves to <brain>/<slug>/.raw/crawlers/<host>/; without it results go to <brain>/_system/crawls/<host>/",
           },
-          output_dir: { type: "string", description: "Override output directory (absolute path)" },
+          output_dir: {
+            type: "string",
+            description: "Override output directory; must resolve inside <brain>/<slug>/.raw/crawlers/ (or <brain>/_system/crawls/ without a slug). Relative paths resolve from there.",
+          },
           limit: { type: "number", default: 200, description: "Max pages to crawl (cap 1000)" },
           includePaths: { type: "array", items: { type: "string" }, description: "Only crawl paths matching these regexes" },
           excludePaths: { type: "array", items: { type: "string" }, description: "Skip paths matching these regexes" },
@@ -332,9 +421,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           url: { type: "string", description: "Start URL" },
           client_slug: {
             type: "string",
-            description: "Optional client slug — saves to <SEO_BRAIN_HOME>/<slug>/.raw/crawlers/<host>/",
+            description: "Optional client slug (must be an onboarded client) — saves to <brain>/<slug>/.raw/crawlers/<host>/; without it results go to <brain>/_system/crawls/<host>/",
           },
-          output_dir: { type: "string", description: "Override output directory (absolute path)" },
+          output_dir: {
+            type: "string",
+            description: "Override output directory; must resolve inside <brain>/<slug>/.raw/crawlers/ (or <brain>/_system/crawls/ without a slug). Relative paths resolve from there.",
+          },
           max_depth: { type: "number", default: 2, description: "Crawl depth" },
           max_pages: { type: "number", default: 50, description: "Max pages to crawl" },
           strategy: {
@@ -360,14 +452,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           url: { type: "string", description: "Start URL" },
           client_slug: {
             type: "string",
-            description: "Optional client slug — saves to <SEO_BRAIN_HOME>/<slug>/.raw/crawlers/<host>/",
+            description: "Optional client slug (must be an onboarded client) — saves to <brain>/<slug>/.raw/crawlers/<host>/; without it results go to <brain>/_system/crawls/<host>/",
           },
-          output_dir: { type: "string", description: "Override output directory (absolute path)" },
+          output_dir: {
+            type: "string",
+            description: "Override output directory; must resolve inside <brain>/<slug>/.raw/crawlers/ (or <brain>/_system/crawls/ without a slug). Relative paths resolve from there.",
+          },
           max_pages: { type: "number", default: 20, description: "Max pages" },
           concurrency: { type: "number", default: 3, description: "Concurrent requests" },
-          pause_file: { type: "string", description: "Touch this file to pause crawl" },
+          pause_file: {
+            type: "string",
+            description: "Touch this file to pause crawl; must be inside the client dir or <brain>/_system (relative paths resolve from there)",
+          },
         },
         required: ["url"],
+      },
+    },
+
+    // ── Firecrawl spend ledger (free) ────────────────────────────────────
+    {
+      name: "crawlers_spend",
+      description:
+        "Firecrawl credit usage from the local ledger (free, no API call). Omit client_slug for all clients plus unassigned calls. Returns total credits, calls and a per-tool breakdown.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          client_slug: { type: "string", description: "Client slug (omit for all clients + unassigned)" },
+          since: { type: "string", description: "ISO timestamp/date lower bound (inclusive)" },
+          until: { type: "string", description: "ISO timestamp/date upper bound (inclusive)" },
+        },
       },
     },
   ],
@@ -383,10 +496,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       // ── Auto-router: crawlers_scrape ──────────────────────────────────
       case "crawlers_scrape": {
-        const { url, css_selector, solve_cloudflare = true } = args as {
+        const { url, css_selector, solve_cloudflare = true, client_slug } = args as {
           url: string;
           css_selector?: string;
           solve_cloudflare?: boolean;
+          client_slug?: string;
         };
 
         // Try Scrapling stealth first (free)
@@ -397,7 +511,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const output = await runPython(pyArgs, 60000);
           const parsed = JSON.parse(output);
           if (parsed.status && parsed.status >= 200 && parsed.status < 400) {
-            return { content: [{ type: "text", text: output }] };
+            return await textResult(output, name, client_slug);
           }
         } catch {
           // Scrapling failed, fall through to Firecrawl
@@ -409,11 +523,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           formats: ["markdown"],
           onlyMainContent: true,
         };
-        const data = await firecrawlApi("/v2/scrape", {
+        const data = await firecrawlTracked(name, url, client_slug, "/v2/scrape", {
           method: "POST",
           body: JSON.stringify(body),
-        });
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }, 1);
+        return await textResult(JSON.stringify(data, null, 2), name, client_slug);
       }
 
       // ── Scrapling: crawlers_scrape_scrapling ──────────────────────────
@@ -425,6 +539,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           disable_resources = false,
           proxy,
           css_selector,
+          client_slug,
         } = args as {
           url: string;
           mode?: string;
@@ -432,6 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           disable_resources?: boolean;
           proxy?: string;
           css_selector?: string;
+          client_slug?: string;
         };
 
         const pyArgs = [scriptPath("scrapling_fetch.py"), "--url", url, "--mode", mode];
@@ -441,7 +557,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (css_selector) pyArgs.push("--css-selector", css_selector);
 
         const output = await runPython(pyArgs, 90000);
-        return { content: [{ type: "text", text: output }] };
+        return await textResult(output, name, client_slug);
       }
 
       // ── Firecrawl: crawlers_scrape_firecrawl ──────────────────────────
@@ -452,33 +568,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           onlyMainContent = true,
           waitFor,
           mobile,
+          client_slug,
         } = args as {
           url: string;
           formats?: string[];
           onlyMainContent?: boolean;
           waitFor?: number;
           mobile?: boolean;
+          client_slug?: string;
         };
 
         const body: Record<string, unknown> = { url, formats, onlyMainContent };
         if (typeof waitFor === "number") body.waitFor = waitFor;
         if (mobile) body.mobile = true;
 
-        const data = await firecrawlApi("/v2/scrape", {
+        const data = await firecrawlTracked(name, url, client_slug, "/v2/scrape", {
           method: "POST",
           body: JSON.stringify(body),
-        });
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }, 1);
+        return await textResult(JSON.stringify(data, null, 2), name, client_slug);
       }
 
       // ── Crawl4AI: crawlers_scrape_crawl4ai ────────────────────────────
       case "crawlers_scrape_crawl4ai": {
-        const { url, css_selector, wait_for, screenshot = false, cache_bypass = false } = args as {
+        const { url, css_selector, wait_for, screenshot = false, cache_bypass = false, client_slug } = args as {
           url: string;
           css_selector?: string;
           wait_for?: string;
           screenshot?: boolean;
           cache_bypass?: boolean;
+          client_slug?: string;
         };
 
         const pyArgs = [scriptPath("crawl4ai_scrape.py"), "--url", url];
@@ -488,7 +607,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (cache_bypass) pyArgs.push("--cache-bypass");
 
         const output = await runPython(pyArgs, 90000);
-        return { content: [{ type: "text", text: output }] };
+        return await textResult(output, name, client_slug);
       }
 
       // ── Map: crawlers_map ─────────────────────────────────────────────
@@ -499,12 +618,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           sitemap = "include",
           include_subdomains = true,
           search,
+          client_slug,
         } = args as {
           url: string;
           limit?: number;
           sitemap?: string;
           include_subdomains?: boolean;
           search?: string;
+          client_slug?: string;
         };
 
         const body: Record<string, unknown> = {
@@ -515,11 +636,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
         if (search) body.search = search;
 
-        const data = await firecrawlApi("/v2/map", {
+        const data = await firecrawlTracked(name, url, client_slug, "/v2/map", {
           method: "POST",
           body: JSON.stringify(body),
-        });
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        }, 1);
+        return await textResult(JSON.stringify(data, null, 2), name, client_slug);
       }
 
       // ── Crawl (Firecrawl): crawlers_crawl ─────────────────────────────
@@ -548,7 +669,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           wait_seconds?: number;
         };
 
-        const outDir = await resolveOutputDir(output_dir, client_slug, url);
+        const outDir = resolveOutputDir(output_dir, client_slug, url);
         await mkdir(outDir, { recursive: true });
 
         const crawlBody: Record<string, unknown> = {
@@ -561,18 +682,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (excludePaths?.length) crawlBody.excludePaths = excludePaths;
         if (typeof max_depth === "number") crawlBody.maxDiscoveryDepth = max_depth;
 
-        const started = await firecrawlApi("/v2/crawl", {
-          method: "POST",
-          body: JSON.stringify(crawlBody),
-        });
+        let started: any;
+        try {
+          started = await firecrawlApi("/v2/crawl", {
+            method: "POST",
+            body: JSON.stringify(crawlBody),
+          });
+        } catch (err) {
+          await recordFirecrawl({ client_slug: client_slug ?? null, tool: name, target: url, credits: 0, ok: false });
+          throw err;
+        }
         if (!started.id) {
+          await recordFirecrawl({ client_slug: client_slug ?? null, tool: name, target: url, credits: creditsOf(started, 0), ok: false });
           throw new Error("Firecrawl crawl did not return a job id");
         }
 
         const deadline = Date.now() + Math.max(30, Math.min(1200, wait_seconds)) * 1000;
         let result: any = null;
+        let lastState: any = null;
         while (Date.now() < deadline) {
-          const state = await firecrawlApi(`/v2/crawl/${started.id}`);
+          let state: any;
+          try {
+            state = await firecrawlApi(`/v2/crawl/${started.id}`);
+          } catch (err) {
+            await recordFirecrawl({
+              client_slug: client_slug ?? null,
+              tool: name,
+              target: url,
+              credits: creditsOf(lastState, Number(lastState?.completed) || 0),
+              ok: false,
+            });
+            throw err;
+          }
+          lastState = state;
           if (
             state.status === "completed" ||
             state.status === "failed" ||
@@ -584,11 +726,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           await new Promise((r) => setTimeout(r, 5000));
         }
         if (!result) {
+          await recordFirecrawl({
+            client_slug: client_slug ?? null,
+            tool: name,
+            target: url,
+            credits: creditsOf(lastState, Number(lastState?.completed) || 0),
+            ok: false,
+          });
           throw new Error(
             `Firecrawl crawl ${started.id} did not finish within ${wait_seconds}s. ` +
               `Re-run with a higher wait_seconds or check https://api.firecrawl.dev/v2/crawl/${started.id}`,
           );
         }
+
+        await recordFirecrawl({
+          client_slug: client_slug ?? null,
+          tool: name,
+          target: url,
+          credits: creditsOf(result, Array.isArray(result.data) ? result.data.length : Number(result.completed) || 0),
+          ok: result.status === "completed",
+        });
 
         const files: Array<{ url: string; title?: string; statusCode?: number; path: string }> = [];
         for (const page of result.data ?? []) {
@@ -661,9 +818,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           keywords?: string;
         };
 
-        const outDir = output_dir
-          ? path.resolve(output_dir)
-          : await resolveOutputDir(undefined, client_slug, url);
+        const outDir = resolveOutputDir(output_dir, client_slug, url);
         await mkdir(outDir, { recursive: true });
 
         const pyArgs = [
@@ -677,7 +832,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (keywords) pyArgs.push("--keywords", keywords);
 
         const output = await runPython(pyArgs, 300000); // 5 min for deep crawls
-        return { content: [{ type: "text", text: output }] };
+        return await textResult(output, name, client_slug);
       }
 
       // ── Scrapling spider: crawlers_crawl_scrapling ────────────────────
@@ -698,9 +853,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           pause_file?: string;
         };
 
-        const outDir = output_dir
-          ? path.resolve(output_dir)
-          : await resolveOutputDir(undefined, client_slug, url);
+        const outDir = resolveOutputDir(output_dir, client_slug, url);
+        const pauseFile = pause_file ? resolvePauseFile(pause_file, client_slug) : undefined;
         await mkdir(outDir, { recursive: true });
 
         const pyArgs = [
@@ -710,10 +864,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "--concurrency", String(concurrency),
           "--output-dir", outDir,
         ];
-        if (pause_file) pyArgs.push("--pause-file", pause_file);
+        if (pauseFile) {
+          await mkdir(path.dirname(pauseFile), { recursive: true });
+          pyArgs.push("--pause-file", pauseFile);
+        }
 
         const output = await runPython(pyArgs, 300000); // 5 min for spider crawls
-        return { content: [{ type: "text", text: output }] };
+        return await textResult(output, name, client_slug);
+      }
+
+      // ── Firecrawl ledger: crawlers_spend (free) ───────────────────────
+      case "crawlers_spend": {
+        const { client_slug, since, until } = (args ?? {}) as {
+          client_slug?: string;
+          since?: string;
+          until?: string;
+        };
+        const report = await firecrawlSpendReport(client_slug || undefined, since, until);
+        return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
       }
 
       default:
@@ -721,9 +889,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (error) {
     if (error instanceof McpError) throw error;
-    const message = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ type: "text", text: `Error: ${message}` }],
+      content: [{ type: "text", text: `Error: ${errText(error)}` }],
       isError: true,
     };
   }

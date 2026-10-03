@@ -11,6 +11,7 @@ import {
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { redact, tail } from "./util.js";
 
 const SCRIPTS_DIR = path.resolve(
   process.env.PYTHON_SCRIPTS_DIR ||
@@ -68,17 +69,16 @@ function runPython(args: string[]): Promise<string> {
       if (code === 0) {
         resolve(stdout);
       } else {
-        reject(
-          new Error(
-            `Script exited with code ${code}\nstderr:\n${stderr}`
-          )
-        );
+        const parts = [`Script exited with code ${code}`];
+        if (stdout.trim()) parts.push(`output (tail):\n${redact(tail(stdout))}`);
+        if (stderr.trim()) parts.push(`stderr (tail):\n${redact(tail(stderr))}`);
+        reject(new Error(parts.join("\n")));
       }
     });
 
     child.on("error", (err: Error) => {
       clearTimeout(timer);
-      reject(new Error(`Failed to start script: ${err.message}`));
+      reject(new Error(`Failed to start script: ${redact(err.message)}`));
     });
   });
 }
@@ -146,23 +146,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     scripts.push({
       name: "python_moz_backlinks",
       description:
-        "Get Moz API backlink data (optional/skipped — DataForSEO backlinks are primary)",
+        "Get Moz domain/page metrics (DA/PA, spam score, link counts). Optional — DataForSEO backlinks are primary. Reads MOZ_API_KEY from the environment.",
       inputSchema: {
         type: "object",
         properties: {
           domain: {
             type: "string",
-            description: "Domain to query",
-          },
-          access_id: {
-            type: "string",
-            description:
-              "Moz API access ID (or set MOZ_API_KEY / MOZ_ACCESS_ID env var)",
-          },
-          secret_key: {
-            type: "string",
-            description:
-              "Moz API secret key (or set MOZ_SECRET_KEY env var)",
+            description: "Domain or URL to query",
           },
         },
         required: ["domain"],
@@ -173,18 +163,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   if (scriptExists("bing_webmaster.py")) {
     scripts.push({
       name: "python_bing_webmaster",
-      description: "Get Bing Webmaster data (backlinks / site health)",
+      description:
+        "Get Bing Webmaster inbound links for a site (must be verified in your Bing Webmaster account). Reads BING_WEBMASTER_API_KEY (alias BING_API_KEY) from the environment.",
       inputSchema: {
         type: "object",
         properties: {
           domain: {
             type: "string",
-            description: "Domain to query",
-          },
-          api_key: {
-            type: "string",
-            description:
-              "Bing Webmaster API key (or set BING_WEBMASTER_API_KEY env var; BING_API_KEY is accepted as alias)",
+            description: "Domain or site URL to query",
           },
         },
         required: ["domain"],
@@ -299,41 +285,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           domain,
         ]);
         return {
-          content: [{ type: "text", text: output }],
+          content: [{ type: "text", text: redact(output) }],
         };
       }
 
       case "python_moz_backlinks": {
-        const { domain, access_id, secret_key } = args as {
-          domain: string;
-          access_id?: string;
-          secret_key?: string;
-        };
-        const pyArgs = [scriptPath("moz_api.py"), domain];
-        if (access_id) {
-          pyArgs.push("--access-id", access_id);
-        }
-        if (secret_key) {
-          pyArgs.push("--secret-key", secret_key);
-        }
+        // Key comes from MOZ_API_KEY (backlinks_auth.py); never pass secrets on argv.
+        const { domain } = args as { domain: string };
+        const pyArgs = [scriptPath("moz_api.py"), "metrics", domain, "--json"];
         const output = await runPython(pyArgs);
         return {
-          content: [{ type: "text", text: output }],
+          content: [{ type: "text", text: redact(output) }],
         };
       }
 
       case "python_bing_webmaster": {
-        const { domain, api_key } = args as {
-          domain: string;
-          api_key?: string;
-        };
-        const pyArgs = [scriptPath("bing_webmaster.py"), domain];
-        if (api_key) {
-          pyArgs.push("--api-key", api_key);
-        }
+        // Key comes from BING_WEBMASTER_API_KEY / BING_API_KEY (backlinks_auth.py); never on argv.
+        const { domain } = args as { domain: string };
+        const pyArgs = [scriptPath("bing_webmaster.py"), "links", domain, "--json"];
         const output = await runPython(pyArgs);
         return {
-          content: [{ type: "text", text: output }],
+          content: [{ type: "text", text: redact(output) }],
         };
       }
 
@@ -381,7 +353,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const output = await runPython(pyArgs);
         return {
-          content: [{ type: "text", text: output }],
+          content: [{ type: "text", text: redact(output) }],
         };
       }
 
@@ -413,8 +385,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (error instanceof McpError) {
       throw error;
     }
-    const message =
-      error instanceof Error ? error.message : String(error);
+    const message = redact(
+      error instanceof Error ? error.message : String(error)
+    );
     return {
       content: [{ type: "text", text: `Error: ${message}` }],
       isError: true,

@@ -2,8 +2,18 @@
 description: Local & maps specialist — Google Business Profile, NAP consistency, citations, map-pack geo-grid rankings, reviews, e-commerce SEO.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 

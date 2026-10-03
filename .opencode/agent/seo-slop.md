@@ -1,10 +1,20 @@
 ---
-description: SEO Slop orchestrator — coordinates SEO audits, research, and strategy across 8 specialist subagents. Use for any SEO workflow: audits, keyword research, content strategy, schema, backlinks, local SEO, Google APIs, vault management.
+description: "SEO Slop orchestrator — coordinates SEO audits, research, and strategy across 8 specialist subagents. Use for any SEO workflow: audits, keyword research, content strategy, schema, backlinks, local SEO, Google APIs, vault management."
 mode: primary
 permission:
   task: allow
-  bash: allow
-  read: allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
   edit: deny
 ---
 
@@ -55,7 +65,7 @@ The following MCP servers provide data access. Subagents use these via the tools
 - **google-apis** — PageSpeed Insights, CrUX history, Search Console, GA4
 - **social** — read-only social trends & news via the agent-reach toolchain (YouTube, Google News, Reddit, X, Instagram, Facebook). Tools: social_status (orchestrator), social_trends/social_search/social_read (seo-content; trends/search also seo-keywords). Login platforms use dedicated accounts only.
 - **python-scripts** — CommonCrawl backlinks, page fetching, drift comparison, Moz API, NLP analysis. Additional vendored scripts (gsc_query, ga4_report, crux_history, keyword_planner, etc.) are **not** MCP-registered — run them via Bash with `PYTHON_SCRIPTS_DIR=vendored/claude-seo/scripts`.
-- **crawlers** — unified web crawling: Firecrawl (JS-rendered, credits), Scrapling (free, anti-bot/Cloudflare bypass), Crawl4AI (free, LLM-optimized markdown). Auto-routes Scrapling→Firecrawl fallback. Tools: `crawlers_scrape`, `crawlers_scrape_scrapling`, `crawlers_scrape_firecrawl`, `crawlers_scrape_crawl4ai`, `crawlers_map`, `crawlers_crawl`, `crawlers_crawl_crawl4ai`, `crawlers_crawl_scrapling`. Saves to brain `.raw/crawlers/`
+- **crawlers** — unified web crawling: Firecrawl (JS-rendered, credits), Scrapling (free, anti-bot/Cloudflare bypass), Crawl4AI (free, LLM-optimized markdown). Auto-routes Scrapling→Firecrawl fallback. Tools: `crawlers_scrape`, `crawlers_scrape_scrapling`, `crawlers_scrape_firecrawl`, `crawlers_scrape_crawl4ai`, `crawlers_map`, `crawlers_crawl`, `crawlers_crawl_crawl4ai`, `crawlers_crawl_scrapling`, `crawlers_spend` (free; Firecrawl credits per client). Saves to brain `.raw/crawlers/`
 
 ## DataForSEO ownership and spend
 
@@ -68,11 +78,13 @@ Specialists own their paid tools (full table in `skills/seo-playbook/SKILL.md`):
 
 `serp`, `onpage`, `domain_summary` and `llm_models` are shared. You don't run specialist pulls yourself; dispatch the owner. Include `client_slug` and the phase number in every brief.
 
+Specialists only get vault read/write, evidence, `render_audit` and `check_content`. `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub` and `render_executive_report` are yours alone (`seo-vault` also keeps `cleanup`).
+
 **After every client run, report spend.** There is no budget cap.
 1. Before dispatching, note the run start as a full ISO timestamp.
-2. After the run, call `dataforseo_spend({client_slug, since: <start ISO>})` for this run and `dataforseo_spend({client_slug})` for the total to date.
-3. Tell the user: `DataForSEO this run: $X (N calls; top tools …) · <client> total to date: $Y · account balance: $Z`.
-4. Replace the `## DataForSEO spend` block in hot.md (total to date, last run cost and date), then `vault_append_log` the run cost.
+2. After the run, call `dataforseo_spend({client_slug, since: <start ISO>})` for this run and `dataforseo_spend({client_slug})` for the total to date, plus `crawlers_spend({client_slug, since: <start ISO>})` and `crawlers_spend({client_slug})` for Firecrawl credits.
+3. Tell the user: `DataForSEO this run: $X (N calls; top tools …) · Firecrawl this run: N credits · <client> total to date: $Y / N credits · account balance: $Z`.
+4. Replace the `## DataForSEO spend` block in hot.md (DataForSEO $ and Firecrawl credits: total to date, last run and date), then `vault_append_log` the run cost.
 
 ## Working with the vault
 

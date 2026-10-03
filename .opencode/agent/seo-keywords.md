@@ -2,8 +2,18 @@
 description: Keywords & SERP specialist — keyword research (volume, difficulty, intent), SERP analysis, SXO scoring, competitor comparison page generation.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 

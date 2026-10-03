@@ -11,6 +11,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { clientGeo, workingRoot } from "./config.js";
 import { isClient, recordSpend } from "./spend.js";
+import { redact } from "./util.js";
 import type { ToolDef } from "./types.js";
 import { backlinkTools } from "./tools/backlinks.js";
 import { competitorTools } from "./tools/competitors.js";
@@ -203,7 +204,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
     }
     return {
-      content: [{ type: "text", text: `DataForSEO ${name} failed: ${error?.message ?? String(error)}` }],
+      content: [{ type: "text", text: `DataForSEO ${name} failed: ${redact(error?.message ?? String(error))}` }],
       isError: true,
     };
   }

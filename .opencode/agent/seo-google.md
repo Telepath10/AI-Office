@@ -2,8 +2,18 @@
 description: Google APIs specialist — PageSpeed Insights, CrUX history, Search Console queries, GA4 reporting, image audit, drift monitoring.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 

@@ -1,28 +1,28 @@
 ## 1. Broken now
 
-| # | Issue | Where |
-|---|---|---|
-| 1 | **Most of the working system isn't in git.** `.claude/`, `.mcp.json`, `CLAUDE.md`, `mcp/crawlers`, `mcp/social`, the new dataforseo `src/tools/*` files, `vault/onboarding.ts`, all of `scripts/*.py`, 4 skills and 2 vendored folders are untracked. A clone has no Claude harness, no renderer, no PDF export and no social tools. | `git status` |
-| 2 | **Google Search Console and GA4 never get a billing project.** The code calls `require()` inside an ES module, so it always throws. The error is swallowed, so the `X-Goog-User-Project` header is never sent. It also ignores `GOOGLE_APPLICATION_CREDENTIALS`. | `mcp/google-apis/src/index.ts:22-30` |
-| 3 | **The GA4 default metrics are probably not valid GA4 metric names** (`organicSearchSessions` and similar). | `google-apis/src/index.ts:263` |
-| 4 | **`python_drift_baseline` and `drift_compare` fail**, because the claude-seo venv is missing `bs4` and `lxml`. | `vendored/claude-seo/scripts/parse_html.py:19` |
-| 5 | **Your Bash allow rules never take effect.** `"ask": ["Bash(*)"]` catches every command first, so every Bash command prompts. | `.claude/settings.json:14` |
-| 6 | **The tool-name examples in the docs are wrong.** They say `mcp__vault__publish_note`, but the real name is `mcp__vault__vault_publish_note`. The docs also claim short names "resolve", which they don't. | `CLAUDE.md:24`, `seo-slop.md:57,87` |
-| 7 | **The healthcheck has three bugs:** it only compares `src/index.ts` with the build, its staleness test is wrong, and its rebuild hint names scripts that don't exist (`build:google-apis`). | `bootup-healthcheck.sh:309,351-359` |
-| 8 | **Starting Claude without the launcher leaves every server keyless.** `.mcp.json` passes no `env`, so keys only arrive if you start via `start-claude.sh`. | `.mcp.json` |
-| 9 | **Neither client's past audits can roll into the executive report.** Both clients' audits predate the current audit-data format. | `.seo-brain/{afdindia,nailaara}/.published` |
+| # | Issue | Where | Status |
+|---|---|---|---|
+| 1 | **Most of the working system isn't in git.** `.claude/`, `.mcp.json`, `CLAUDE.md`, `mcp/crawlers`, `mcp/social`, the new dataforseo `src/tools/*` files, `vault/onboarding.ts`, all of `scripts/*.py`, 4 skills and 2 vendored folders are untracked. A clone has no Claude harness, no renderer, no PDF export and no social tools. | `git status` | Fixed |
+| 2 | **Google Search Console and GA4 never get a billing project.** The code calls `require()` inside an ES module, so it always throws. The error is swallowed, so the `X-Goog-User-Project` header is never sent. It also ignores `GOOGLE_APPLICATION_CREDENTIALS`. | `mcp/google-apis/src/index.ts:22-30` | Fixed |
+| 3 | **The GA4 default metrics are probably not valid GA4 metric names** (`organicSearchSessions` and similar). | `google-apis/src/index.ts:263` | Fixed |
+| 4 | **`python_drift_baseline` and `drift_compare` fail**, because the claude-seo venv is missing `bs4` and `lxml`. | `vendored/claude-seo/scripts/parse_html.py:19` | Fixed |
+| 5 | **Your Bash allow rules never take effect.** `"ask": ["Bash(*)"]` catches every command first, so every Bash command prompts. | `.claude/settings.json:14` | Fixed |
+| 6 | **The tool-name examples in the docs are wrong.** They say `mcp__vault__publish_note`, but the real name is `mcp__vault__vault_publish_note`. The docs also claim short names "resolve", which they don't. | `CLAUDE.md:24`, `seo-slop.md:57,87` | Fixed |
+| 7 | **The healthcheck has three bugs:** it only compares `src/index.ts` with the build, its staleness test is wrong, and its rebuild hint names scripts that don't exist (`build:google-apis`). | `bootup-healthcheck.sh:309,351-359` | Fixed |
+| 8 | **Starting Claude without the launcher leaves every server keyless.** `.mcp.json` passes no `env`, so keys only arrive if you start via `start-claude.sh`. | `.mcp.json` | Fixed |
+| 9 | **Neither client's past audits can roll into the executive report.** Both clients' audits predate the current audit-data format. | `.seo-brain/{afdindia,nailaara}/.published` | Deferred (audits must be re-rendered in the current audit-data format) |
 
 ## 2. Security and risk
 
-| Severity | Issue |
-|---|---|
-| **High** | **The vault server can write outside the brain.** About 11 vault tools use the raw `client_slug` without checking it, and `resolveWithin` only checks `path` against a base that is already built from that slug. So `client_slug: "../../.."` can write anywhere, and `vault_tree` can walk your whole home directory. Chart embeds allow `../` the same way. |
-| High | **The crawlers server writes wherever it's told.** `output_dir` accepts any absolute path, and the slug isn't checked. |
-| Med | **The permission guardrails are only conventions.** Every specialist gets the full vault toolset (`mcp__vault__*`), so they can publish, run cleanup or onboard clients. In opencode, `bash: allow` lets them write any file and read `.env`. |
-| Med | **Paid Firecrawl tools are open to every agent**, with no spend tracking. |
-| Med | **There are no request timeouts** on any of the API calls, and the vault's Python runs have none either, so a stuck call can hang forever. DataForSEO, Google and social responses also have no size cap. |
-| Low | **Secrets can leak.** The Moz and Bing keys are passed on the command line, where `ps` shows them. Error messages echo the full stderr, which may contain tokens. |
-| Low | **`.env.example:20` now contains your personal gcloud path.** No real keys are committed anywhere, and `.env`, `.seo-brain` and the venvs are all gitignored. |
+| Severity | Issue | Status |
+|---|---|---|
+| **High** | **The vault server can write outside the brain.** About 11 vault tools use the raw `client_slug` without checking it, and `resolveWithin` only checks `path` against a base that is already built from that slug. So `client_slug: "../../.."` can write anywhere, and `vault_tree` can walk your whole home directory. Chart embeds allow `../` the same way. | Fixed |
+| High | **The crawlers server writes wherever it's told.** `output_dir` accepts any absolute path, and the slug isn't checked. | Fixed |
+| Med | **The permission guardrails are only conventions.** Every specialist gets the full vault toolset (`mcp__vault__*`), so they can publish, run cleanup or onboard clients. In opencode, `bash: allow` lets them write any file and read `.env`. | Fixed: specialists get explicit vault read/write/evidence/`render_audit`/`check_content` tools only (both harnesses); opencode bash is a pattern map and `.env` reads are denied. The Claude `.env` Bash deny is pattern-based; a `python3` bypass is accepted |
+| Med | **Paid Firecrawl tools are open to every agent**, with no spend tracking. | Fixed: Firecrawl stays open to all agents, now with per-client credit tracking (`crawlers_spend`, `meta/spend/firecrawl.jsonl`) in the run spend report |
+| Med | **There are no request timeouts** on any of the API calls, and the vault's Python runs have none either, so a stuck call can hang forever. DataForSEO, Google and social responses also have no size cap. | Fixed |
+| Low | **Secrets can leak.** The Moz and Bing keys are passed on the command line, where `ps` shows them. Error messages echo the full stderr, which may contain tokens. | Fixed |
+| Low | **`.env.example:20` now contains your personal gcloud path.** No real keys are committed anywhere, and `.env`, `.seo-brain` and the venvs are all gitignored. | Fixed (path already replaced with a placeholder) |
 
 ## 3. Dependencies outside the project
 

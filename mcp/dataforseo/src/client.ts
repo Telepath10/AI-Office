@@ -1,4 +1,7 @@
+import { redact, tail } from "./util.js";
+
 const BASE_URL = "https://api.dataforseo.com";
+const TIMEOUT_MS = parseInt(process.env.DATAFORSEO_TIMEOUT_MS || "60000", 10);
 
 function basicAuth(): string {
   const login = process.env.DATAFORSEO_LOGIN || process.env.DATAFORSEO_USERNAME;
@@ -10,17 +13,27 @@ function basicAuth(): string {
 }
 
 async function request(method: "GET" | "POST", path: string, payload?: unknown): Promise<any> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: {
-      Authorization: basicAuth(),
-      ...(payload !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    body: payload !== undefined ? JSON.stringify(payload) : undefined,
-  });
+  const auth = basicAuth();
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        Authorization: auth,
+        ...(payload !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: payload !== undefined ? JSON.stringify(payload) : undefined,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(`DataForSEO request to ${path} timed out after ${TIMEOUT_MS} ms (set DATAFORSEO_TIMEOUT_MS to change)`);
+    }
+    throw new Error(`DataForSEO request to ${path} failed: ${redact(err instanceof Error ? err.message : String(err))}`);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`DataForSEO HTTP ${res.status} ${res.statusText} on ${path}: ${body.slice(0, 200)}`);
+    throw new Error(`DataForSEO HTTP ${res.status} ${res.statusText} on ${path}: ${redact(tail(body, 300))}`);
   }
   return res.json();
 }

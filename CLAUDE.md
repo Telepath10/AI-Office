@@ -23,7 +23,7 @@ Default agent is `seo-slop` (set in `.claude/settings.json`). Skills live in rep
 
 MCP tools appear as `mcp__<server>__<server-prefix>_<tool>`, e.g. `mcp__vault__vault_publish_note`, `mcp__dataforseo__dataforseo_spend`, `mcp__google-apis__google_pagespeed`. Prose prompts use the short name (`publish_note`, `render_audit`) as shorthand only; nothing resolves it automatically, so call the full name.
 
-Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools.
+Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools. Specialists only get vault read/write, evidence, `render_audit` and `check_content`; `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub` and `render_executive_report` are orchestrator-only (`seo-vault` also keeps `cleanup`). `.env` reads are denied in both harnesses.
 
 ## Orchestrator rules
 
@@ -54,9 +54,9 @@ Use vault MCP tools to read/write. Check the vault before specialist work to avo
 
 Never publish drafts, raw dumps, or low-confidence notes. **Deliverables never mention tool failures.** Failed tools go in `data_gaps`. The renderer leaves those areas out of scoring and logs them to `meta/run-issues/`, and the orchestrator tells the user separately.
 
-## DataForSEO spend
+## DataForSEO and Firecrawl spend
 
-No budget cap. After every client run, report `DataForSEO this run: $X (N calls; top tools …) · <client> total to date: $Y · account balance: $Z`. Get it from `dataforseo_spend({client_slug, since: <run start ISO>})` and `dataforseo_spend({client_slug})`. Then update the `## DataForSEO spend` block in that client's `hot.md` and `append_log` the run cost.
+No budget cap. After every client run, report `DataForSEO this run: $X (N calls; top tools …) · Firecrawl this run: N credits · <client> total to date: $Y / N credits · account balance: $Z`. Get it from `dataforseo_spend({client_slug, since: <run start ISO>})`, `dataforseo_spend({client_slug})` and `crawlers_spend({client_slug, since})` (free; Firecrawl credit ledger `meta/spend/firecrawl.jsonl`). Then update the `## DataForSEO spend` block in that client's `hot.md` (include Firecrawl credits) and `append_log` the run cost.
 
 ## Evidence
 
@@ -72,7 +72,7 @@ Record live-data claims with vault `add_evidence` (`specialist_id`, `claim`, `pr
 | AI / GEO (LLM mentions) | Same DataForSEO login | `dataforseo_llm_mentions_*` (search, metrics, top_domains, top_pages). ~$0.05/call. Enable AI Optimization in the DataForSEO dashboard if live calls fail. |
 | AI / GEO (LLM responses) | Same DataForSEO login | `dataforseo_llm_response` (Claude/Gemini/Perplexity/ChatGPT Live), `dataforseo_llm_models`. ~$0.01/call with cheap models. Log actual `cost` from the response JSON as `cost_usd` in evidence. |
 | Google APIs | `GOOGLE_API_KEY` + ADC | `google-apis` MCP (PSI, CrUX, GSC, GA4) |
-| Scraping / crawl | `FIRECRAWL_API_KEY`, crawlers venv | `crawlers` MCP |
+| Scraping / crawl | `FIRECRAWL_API_KEY`, crawlers venv | `crawlers` MCP; `crawlers_spend` (free) reports Firecrawl credits per client. Always pass `client_slug` |
 | Social trends & news (read-only) | agent-reach venv (`vendored/agent-reach`); dedicated accounts only: `TWITTER_AUTH_TOKEN`/`TWITTER_CT0`, `REDDIT_SESSION`, dedicated Chrome profile + OpenCLI extension for Instagram/Facebook. YouTube and Google News need nothing | `social` MCP: `social_status`, `social_trends`, `social_search`, `social_read`. Prompt the user when `credentials_missing` is non-empty |
 | Python scripts | `PYTHON_BIN` | `python-scripts` MCP |
 

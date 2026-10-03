@@ -8,8 +8,17 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fitResponse, redact, tail } from "./util.js";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
+const GOOGLE_TIMEOUT_MS = parseInt(process.env.GOOGLE_TIMEOUT_MS || "60000", 10);
+const GCLOUD_TIMEOUT_MS = 30_000;
+
+const CLIENT_SLUG = {
+  type: "string",
+  description:
+    "Optional client slug: responses over 200k chars are saved in full to <brain>/<slug>/.raw/google/ and returned truncated with raw_path",
+};
 
 // Valid GA4 Data API metrics; "organic" comes from the channel-group filter.
 const DEFAULT_GA4_METRICS = "sessions,totalUsers,keyEvents";
@@ -58,12 +67,26 @@ function getQuotaProject(): string {
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(url, init);
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(`Google API request timed out after ${GOOGLE_TIMEOUT_MS} ms (set GOOGLE_TIMEOUT_MS to change)`);
+    }
+    throw new Error(`Google API request failed: ${redact(err instanceof Error ? err.message : String(err))}`);
+  }
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status} from Google API: ${body}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} from Google API: ${redact(tail(body))}`);
   }
   return res.json();
+}
+
+async function respond(tool: string, args: unknown, data: unknown) {
+  const slug = (args as { client_slug?: unknown } | undefined)?.client_slug;
+  const text = await fitResponse(JSON.stringify(data, null, 2), tool, slug, ".raw/google");
+  return { content: [{ type: "text", text }] };
 }
 
 async function adcHeaders(): Promise<Record<string, string>> {
@@ -95,6 +118,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             default: "mobile",
             description: "Device strategy",
           },
+          client_slug: CLIENT_SLUG,
         },
         required: ["url"],
       },
@@ -111,6 +135,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             enum: ["PHONE", "DESKTOP", "TABLET"],
             description: "Optional form factor filter",
           },
+          client_slug: CLIENT_SLUG,
         },
         required: ["url"],
       },
@@ -138,6 +163,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             default: 20,
             description: "Max results to return",
           },
+          client_slug: CLIENT_SLUG,
         },
         required: ["site_url", "start_date", "end_date"],
       },
@@ -156,6 +182,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             description: "The URL to inspect",
           },
+          client_slug: CLIENT_SLUG,
         },
         required: ["site_url", "inspection_url"],
       },
@@ -188,6 +215,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             default: DEFAULT_GA4_CHANNEL,
             description: "Filter by sessionDefaultChannelGroup (default \"Organic Search\"). Pass \"all\" for no filter.",
           },
+          client_slug: CLIENT_SLUG,
         },
         required: ["property_id", "start_date", "end_date"],
       },
@@ -207,9 +235,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
       const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}&key=${GOOGLE_API_KEY}`;
       const data = await fetchJson(apiUrl);
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
+      return await respond(name, args, data);
     }
 
     case "google_crux": {
@@ -228,9 +254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           body: JSON.stringify(body),
         }
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
+      return await respond(name, args, data);
     }
 
     case "google_search_console_queries": {
@@ -256,9 +280,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           rowLimit: limit,
         }),
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
+      return await respond(name, args, data);
     }
 
     case "google_search_console_inspect": {
@@ -281,9 +303,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
         }
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
+      return await respond(name, args, data);
     }
 
     case "google_ga4_report": {
@@ -330,9 +350,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
         }
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
+      return await respond(name, args, data);
     }
 
     default:
@@ -358,16 +376,29 @@ async function fetchAccessToken(): Promise<string> {
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, GCLOUD_TIMEOUT_MS);
     child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
     child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`gcloud token failed: timed out after ${GCLOUD_TIMEOUT_MS / 1000}s`));
+        return;
+      }
       if (code !== 0) {
-        reject(new Error(`gcloud token failed: ${stderr.trim() || `exit ${code}`}`));
+        reject(new Error(`gcloud token failed: ${redact(tail(stderr)) || `exit ${code}`}`));
         return;
       }
       resolve(stdout.trim());
     });
-    child.on("error", (err) => reject(err));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(`gcloud token failed: ${redact(err.message)}`));
+    });
   });
 }
 

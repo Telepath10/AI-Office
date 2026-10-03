@@ -30,6 +30,7 @@ import {
   runSiteChecks,
   localApplies,
 } from "./onboarding.js";
+import { redact, tail } from "./util.js";
 
 // ─── Store roots ──────────────────────────────────────────────────────────────
 //
@@ -61,12 +62,21 @@ function obsidianRoot(): string {
   );
 }
 
+const SLUG_RE = /^[a-z0-9-]+$/;
+
+function assertSlug(slug: string): string {
+  if (typeof slug !== "string" || !SLUG_RE.test(slug)) {
+    throw new Error(`invalid client slug "${String(slug)}" (must match [a-z0-9-])`);
+  }
+  return slug;
+}
+
 function workingVault(slug: string): string {
-  return path.join(workingRoot(), slug);
+  return path.join(workingRoot(), assertSlug(slug));
 }
 
 function obsidianVault(slug: string): string {
-  return path.join(obsidianRoot(), slug);
+  return path.join(obsidianRoot(), assertSlug(slug));
 }
 
 function resolveWithin(base: string, relativePath: string): string {
@@ -120,6 +130,18 @@ function toClientSlug(input: string | undefined): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Validate a client_slug supplied by a tool caller: it must already be a clean
+ * slug ([a-z0-9-]) AND an existing client (working brain with a manifest).
+ * Used by every handler except scaffold/onboard, which create clients.
+ */
+function requireClientSlug(raw: unknown): string {
+  if (typeof raw === "string" && SLUG_RE.test(raw) && fs.existsSync(path.join(workingRoot(), raw, ".manifest.json"))) {
+    return raw;
+  }
+  throw new Error(`Unknown client_slug "${String(raw)}" (must be an existing client: [a-z0-9-], with a manifest)`);
 }
 
 // ─── Working-brain FS operations ───────────────────────────────────────────────
@@ -184,9 +206,21 @@ async function listNotes(slug: string, dir: string): Promise<string[]> {
   }
 }
 
-async function vaultTree(slug: string): Promise<string[]> {
+const WALK_MAX_DEPTH = 8;
+const WALK_MAX_ENTRIES = 5000;
+
+/**
+ * Bounded recursive file listing: stops descending past WALK_MAX_DEPTH and stops
+ * collecting after WALK_MAX_ENTRIES files; `truncated` reports either cap.
+ */
+async function boundedWalk(
+  root: string,
+  include: (name: string) => boolean,
+): Promise<{ files: string[]; truncated: boolean }> {
   const files: string[] = [];
-  async function walk(dir: string, relative: string): Promise<void> {
+  let truncated = false;
+  async function walk(dir: string, relative: string, depth: number): Promise<void> {
+    if (truncated) return;
     let entries;
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -194,17 +228,30 @@ async function vaultTree(slug: string): Promise<string[]> {
       return;
     }
     for (const entry of entries) {
+      if (files.length >= WALK_MAX_ENTRIES) {
+        truncated = true;
+        return;
+      }
       const fullPath = path.join(dir, entry.name);
       const rel = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        await walk(fullPath, rel);
-      } else if (entry.isFile()) {
+        if (depth + 1 >= WALK_MAX_DEPTH) {
+          truncated = true;
+          continue;
+        }
+        await walk(fullPath, rel, depth + 1);
+        if (truncated && files.length >= WALK_MAX_ENTRIES) return;
+      } else if (entry.isFile() && include(entry.name)) {
         files.push(rel);
       }
     }
   }
-  await walk(workingVault(slug), "");
-  return files.sort();
+  await walk(root, "", 0);
+  return { files: files.sort(), truncated };
+}
+
+async function vaultTree(slug: string): Promise<{ files: string[]; truncated: boolean }> {
+  return boundedWalk(workingVault(slug), () => true);
 }
 
 async function atomicWriteFile(target: string, content: string): Promise<void> {
@@ -455,11 +502,11 @@ async function handleScaffoldClient(args: ScaffoldArgs) {
   const indexContent = `---
 brain_schema: ${OBSIDIAN_SCHEMA}
 type: meta
-title: "${args.name}"
+title: ${JSON.stringify(String(args.name ?? ""))}
 client: ${slug}
-site_url: "${args.site_url}"
-business_type: "${args.business_type ?? ""}"
-owner: "${args.owner}"
+site_url: ${JSON.stringify(String(args.site_url ?? ""))}
+business_type: ${JSON.stringify(String(args.business_type ?? ""))}
+owner: ${JSON.stringify(String(args.owner ?? ""))}
 created: ${today()}
 updated: ${today()}
 status: active
@@ -470,7 +517,7 @@ tags:
 related:
   - "[[Clients]]"
 aliases:
-  - ${args.name}
+  - ${JSON.stringify(String(args.name ?? ""))}
 ---
 # ${args.name}
 
@@ -833,7 +880,7 @@ interface PublishArgs {
 }
 
 async function handlePublishNote(args: PublishArgs) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const note = await readNote(slug, args.path);
   if (!note) throw new Error(`working note not found: ${args.path}`);
 
@@ -947,33 +994,87 @@ function bodyHash(body: string): string {
   return createHash("sha256").update(body.trim()).digest("hex").slice(0, 16);
 }
 
-function runPythonJson(script: string, payload: unknown): Promise<any> {
+const PY_STDOUT_CAP = 20 * 1024 * 1024;
+
+function pyTimeout(fallbackMs: number): number {
+  const env = Number(process.env.VAULT_PYTHON_TIMEOUT_MS);
+  return Number.isFinite(env) && env > 0 ? env : fallbackMs;
+}
+
+/**
+ * Run scripts/<script> with the repo venv python. Kills the child (SIGKILL) on
+ * timeout or when stdout exceeds 20 MB; resolves stdout on exit 0, otherwise
+ * rejects with a redacted message carrying the last 600 chars of stderr.
+ */
+function runPy(
+  script: string,
+  args: string[] = [],
+  opts: { stdin?: string; timeoutMs?: number; anyExit?: boolean } = {},
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const root = repoRoot();
     const py = path.join(root, ".venv", "bin", "python");
-    const child = spawn(py, [path.join(root, "scripts", script)], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
+    const timeoutMs = opts.timeoutMs ?? pyTimeout(120000);
+    const child = spawn(py, [path.join(root, "scripts", script), ...args], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let outBytes = 0;
     let stderr = "";
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    let failure: string | null = null;
+    const kill = (why: string) => {
+      if (failure) return;
+      failure = why;
+      child.kill("SIGKILL");
+    };
+    const timer = setTimeout(() => kill(`${script} timed out after ${timeoutMs} ms`), timeoutMs);
+    child.stdout.on("data", (d: Buffer) => {
+      outBytes += d.length;
+      if (outBytes > PY_STDOUT_CAP) {
+        kill(`${script} output exceeded ${PY_STDOUT_CAP} bytes`);
+        return;
+      }
+      chunks.push(d);
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      stderr = tail(stderr + d.toString(), 600);
+    });
     child.on("close", (code: number | null) => {
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        reject(new Error(`${script} exited ${code}: ${stderr || stdout}`.trim()));
+      clearTimeout(timer);
+      const stdout = Buffer.concat(chunks).toString("utf8");
+      if (failure) {
+        reject(new Error(redact(`${failure}${stderr ? `\n${stderr}` : ""}`.trim())));
+      } else if (code !== 0 && !opts.anyExit) {
+        reject(new Error(redact(`${script} exited ${code}: ${stderr || tail(stdout, 600)}`.trim())));
+      } else {
+        resolve({ code, stdout, stderr });
       }
     });
-    child.on("error", (err: Error) => reject(new Error(`cannot run ${py}: ${err.message}`)));
-    child.stdin.end(JSON.stringify(payload));
+    child.on("error", (err: Error) => {
+      clearTimeout(timer);
+      reject(new Error(redact(`cannot run ${py}: ${err.message}`)));
+    });
+    child.stdin.on("error", () => {
+      /* child exited before reading stdin; reported via close */
+    });
+    child.stdin.end(opts.stdin ?? "");
   });
 }
 
+async function runPyJson(script: string, payload: unknown): Promise<any> {
+  // Like the old helpers: a JSON result on stdout wins regardless of exit code.
+  const { code, stdout, stderr } = await runPy(script, [], { stdin: JSON.stringify(payload), anyExit: true });
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(redact(`${script} exited ${code}: ${stderr || tail(stdout, 600)}`.trim()));
+  }
+}
+
 async function handleCheckContent(args: { client_slug: string; path: string }) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const note = await readNote(slug, args.path);
   if (!note) throw new Error(`working note not found: ${args.path}`);
   const evidence = (await queryEvidence(slug, {})).map((e) => e.claim);
-  const out = await runPythonJson("content_check.py", { frontmatter: note.frontmatter, body: note.body, evidence });
+  const out = await runPyJson("content_check.py", { frontmatter: note.frontmatter, body: note.body, evidence });
   const now = new Date().toISOString();
   await writeNote(slug, args.path, {
     ...note.frontmatter,
@@ -1017,6 +1118,7 @@ const AUDIT_NAMES: Record<string, string> = {
 };
 
 const CHART_EMBED_RE = /!\[\[attachments\/charts\/([^\]|]+\.svg)(?:\|[^\]]*)?\]\]/g;
+const SAFE_CHART_RE = /^[\w.-]+\.svg$/;
 
 function chartWorkingDir(slug: string): string {
   return resolveWorking(slug, "assets/charts");
@@ -1028,6 +1130,9 @@ async function copyChartsToObsidian(slug: string, body: string): Promise<void> {
   const dest = resolveObsidian(slug, "attachments/charts");
   await fsp.mkdir(dest, { recursive: true });
   for (const n of new Set(names)) {
+    if (!SAFE_CHART_RE.test(n) || n.includes("..")) {
+      throw new Error(`invalid chart name "${n}" (must be a plain file name matching [\\w.-]+.svg)`);
+    }
     const src = path.join(chartWorkingDir(slug), n);
     try {
       await fsp.copyFile(src, path.join(dest, n));
@@ -1049,26 +1154,6 @@ function hostOf(url: string): string {
   }
 }
 
-function runRenderer(payload: unknown): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const root = repoRoot();
-    const py = path.join(root, ".venv", "bin", "python");
-    const child = spawn(py, [path.join(root, "scripts", "render_audit.py")], { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-    child.on("close", (code: number | null) => {
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        reject(new Error(`render_audit.py exited ${code}: ${stderr || stdout}`.trim()));
-      }
-    });
-    child.on("error", (err: Error) => reject(new Error(`cannot run ${py}: ${err.message}`)));
-    child.stdin.end(JSON.stringify(payload));
-  });
-}
 
 interface AuditDataFile {
   data: Record<string, any>;
@@ -1110,7 +1195,7 @@ async function recordRunIssues(slug: string, label: string, gaps: any[]): Promis
 }
 
 async function handleRenderAudit(args: { client_slug: string; path: string }) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const note = await readNote(slug, args.path);
   if (!note) throw new Error(`working note not found: ${args.path}`);
   const fm = note.frontmatter;
@@ -1140,7 +1225,7 @@ async function handleRenderAudit(args: { client_slug: string; path: string }) {
     .sort((a, b) => (a.file._rendered.cycle < b.file._rendered.cycle ? 1 : -1))[0];
   const previous = prior ? { cycle: prior.file._rendered.cycle, ...prior.file._rendered.scores } : null;
 
-  const out = await runRenderer({
+  const out = await runPyJson("render_audit.py", {
     mode: "audit",
     data,
     previous,
@@ -1201,7 +1286,7 @@ async function handleRenderAudit(args: { client_slug: string; path: string }) {
 }
 
 async function handleRenderExecutive(args: { client_slug: string; cycle?: string }) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const all = await readAuditDataFiles(slug);
   if (!all.length) return errorResult([{ field: "audits", message: "no rendered audits found; run vault_render_audit on each audit first" }]);
   const cycles = Array.from(new Set(all.map((x) => x.file._rendered?.cycle).filter(Boolean))).sort();
@@ -1221,7 +1306,7 @@ async function handleRenderExecutive(args: { client_slug: string; cycle?: string
     .sort((a, b) => (a.file._rendered.cycle < b.file._rendered.cycle ? 1 : -1))[0];
   const previous = priorExec ? { cycle: priorExec.file._rendered.cycle, ...priorExec.file._rendered.scores } : null;
 
-  const out = await runRenderer({
+  const out = await runPyJson("render_audit.py", {
     mode: "executive",
     audits,
     previous,
@@ -1282,27 +1367,12 @@ async function handleRenderExecutive(args: { client_slug: string; cycle?: string
 }
 
 async function handleListPublished(args: { client_slug: string }) {
-  const root = obsidianVault(args.client_slug);
-  const files: string[] = [];
-  async function walk(dir: string, relative: string): Promise<void> {
-    let entries;
-    try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      const rel = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        await walk(fullPath, rel);
-      } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md") {
-        files.push(rel);
-      }
-    }
-  }
-  await walk(root, "");
-  return { content: [{ type: "text", text: JSON.stringify(files.sort()) }] };
+  const root = obsidianVault(requireClientSlug(args.client_slug));
+  const { files, truncated } = await boundedWalk(root, (n) => n.endsWith(".md") && n !== "index.md");
+  const out: string[] = truncated
+    ? [...files, `[truncated: listing capped at ${WALK_MAX_ENTRIES} files / depth ${WALK_MAX_DEPTH}]`]
+    : files;
+  return { content: [{ type: "text", text: JSON.stringify(out) }] };
 }
 
 // ─── PDF export (publish → regenerate attachments) ──────────────────────────────
@@ -1312,27 +1382,14 @@ function repoRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 }
 
-function runPdfExport(slug: string, dryRun: boolean): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const root = repoRoot();
-    const py = path.join(root, ".venv", "bin", "python");
-    const script = path.join(root, "scripts", "regenerate_pdfs.py");
-    const args = [script, slug, "--vault", obsidianRoot(), ...(dryRun ? ["--dry-run"] : [])];
-    const child = spawn(py, args, { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-    child.on("close", (code: number | null) => {
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(`regenerate_pdfs.py exited ${code}\n${stderr}`.trim()));
-    });
-    child.on("error", (err: Error) => reject(new Error(`cannot run ${py}: ${err.message}`)));
-  });
+async function runPdfExport(slug: string, dryRun: boolean): Promise<string> {
+  const args = [slug, "--vault", obsidianRoot(), ...(dryRun ? ["--dry-run"] : [])];
+  const { stdout } = await runPy("regenerate_pdfs.py", args, { timeoutMs: pyTimeout(300000) });
+  return stdout.trim();
 }
 
 async function handleExportPdfs(args: { client_slug: string; dry_run?: boolean }) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const output = await runPdfExport(slug, args.dry_run === true);
   return { content: [{ type: "text", text: output || `No PDF-bearing notes found for ${slug}.` }] };
 }
@@ -1384,7 +1441,7 @@ interface CleanupArgs {
 }
 
 async function handleCleanup(args: CleanupArgs) {
-  const slug = toClientSlug(args.client_slug);
+  const slug = requireClientSlug(args.client_slug);
   const dryRun = args.dry_run !== false;
   const olderThanDays = args.older_than_days ?? 90;
   const publishedDays = args.published_days ?? 30;
@@ -1469,7 +1526,7 @@ async function handleCleanup(args: CleanupArgs) {
 
   if (!dryRun && moveList.length) {
     const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
-    const trashBase = path.join(workingRoot(), ".trash", slug, ts);
+    const trashBase = path.join(workingRoot(), ".trash", assertSlug(slug), ts);
     for (const { category, file } of moveList) {
       const dest = path.join(trashBase, category, file.rel);
       await fsp.mkdir(path.dirname(dest), { recursive: true });
@@ -1487,7 +1544,7 @@ async function handleCleanup(args: CleanupArgs) {
 }
 
 async function handlePurgeTrash(slug: string, trashDays: number) {
-  const trashRoot = path.join(workingRoot(), ".trash", slug);
+  const trashRoot = path.join(workingRoot(), ".trash", assertSlug(slug));
   const cutoff = Date.now() - trashDays * 86400000;
   const removed: string[] = [];
   let bytes = 0;
@@ -1870,7 +1927,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 // ─── Tool handlers ─────────────────────────────────────────────────────────────
 
 async function handleReadNote(args: { client_slug: string; path: string }) {
-  const note = await readNote(args.client_slug, args.path);
+  const note = await readNote(requireClientSlug(args.client_slug), args.path);
   if (!note) {
     return { content: [{ type: "text", text: "Note not found" }], isError: true };
   }
@@ -1878,22 +1935,25 @@ async function handleReadNote(args: { client_slug: string; path: string }) {
 }
 
 async function handleWriteNote(args: { client_slug: string; path: string; frontmatter: Record<string, unknown>; body: string }) {
-  await writeNote(args.client_slug, args.path, args.frontmatter, args.body);
+  await writeNote(requireClientSlug(args.client_slug), args.path, args.frontmatter, args.body);
   return { content: [{ type: "text", text: JSON.stringify({ path: args.path, written: true }) }] };
 }
 
 async function handleListNotes(args: { client_slug: string; dir?: string }) {
-  const notes = await listNotes(args.client_slug, args.dir ?? ".");
+  const notes = await listNotes(requireClientSlug(args.client_slug), args.dir ?? ".");
   return { content: [{ type: "text", text: JSON.stringify(notes) }] };
 }
 
 async function handleVaultTree(args: { client_slug: string }) {
-  const tree = await vaultTree(args.client_slug);
-  return { content: [{ type: "text", text: JSON.stringify(tree) }] };
+  const { files, truncated } = await vaultTree(requireClientSlug(args.client_slug));
+  const out: string[] = truncated
+    ? [...files, `[truncated: listing capped at ${WALK_MAX_ENTRIES} files / depth ${WALK_MAX_DEPTH}]`]
+    : files;
+  return { content: [{ type: "text", text: JSON.stringify(out) }] };
 }
 
 async function handleReadHot(args: { client_slug: string }) {
-  const content = await readRaw(args.client_slug, "hot.md");
+  const content = await readRaw(requireClientSlug(args.client_slug), "hot.md");
   if (content === null) {
     return { content: [{ type: "text", text: "hot.md not found" }], isError: true };
   }
@@ -1901,12 +1961,12 @@ async function handleReadHot(args: { client_slug: string }) {
 }
 
 async function handleWriteHot(args: { client_slug: string; content: string }) {
-  await writeRaw(args.client_slug, "hot.md", args.content);
+  await writeRaw(requireClientSlug(args.client_slug), "hot.md", args.content);
   return { content: [{ type: "text", text: JSON.stringify({ written: true }) }] };
 }
 
 async function handleAppendLog(args: { client_slug: string; line: string }) {
-  const absolute = resolveWorking(args.client_slug, "log.md");
+  const absolute = resolveWorking(requireClientSlug(args.client_slug), "log.md");
   const entry = `- ${new Date().toISOString()} — ${args.line}\n`;
   await fsp.mkdir(path.dirname(absolute), { recursive: true });
   await fsp.appendFile(absolute, entry, "utf8");
@@ -1914,7 +1974,7 @@ async function handleAppendLog(args: { client_slug: string; line: string }) {
 }
 
 async function handleQueryEvidence(args: { client_slug: string; specialist_id?: string; provenance?: string; min_confidence?: string; limit?: number }) {
-  const entries = await queryEvidence(args.client_slug, {
+  const entries = await queryEvidence(requireClientSlug(args.client_slug), {
     specialistId: args.specialist_id,
     provenance: args.provenance,
     minConfidence: args.min_confidence,
@@ -1924,12 +1984,12 @@ async function handleQueryEvidence(args: { client_slug: string; specialist_id?: 
 }
 
 async function handleEvidenceCount(args: { client_slug: string }) {
-  const counts = await provenanceCounts(args.client_slug);
+  const counts = await provenanceCounts(requireClientSlug(args.client_slug));
   return { content: [{ type: "text", text: JSON.stringify(counts) }] };
 }
 
 async function handleAddEvidence(args: AddEvidenceArgs) {
-  const entry = await addEvidence(args);
+  const entry = await addEvidence({ ...args, client_slug: requireClientSlug(args.client_slug) });
   return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
 }
 

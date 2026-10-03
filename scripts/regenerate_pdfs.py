@@ -60,6 +60,10 @@ def main():
 
     for note_path, pdf_name in find_notes(client_dir, vault):
         out = attachments_dir / pdf_name
+        if not out.resolve().is_relative_to(attachments_dir.resolve()):
+            print(f"WARNING: skipping {pdf_name!r} from {note_path.name}: output path escapes {attachments_dir}", file=sys.stderr)
+            skipped += 1
+            continue
         if not note_path.exists():
             print(f"SKIP: source note missing {note_path}")
             missing_src += 1

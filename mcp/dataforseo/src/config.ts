@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -24,11 +24,19 @@ export function workingRoot(): string {
 }
 
 /**
+ * Same check as spend.ts isClient (inlined: spend.ts imports this module, so importing it
+ * back would be circular). Valid slug pattern + an onboarded client's manifest.
+ */
+function isKnownClient(slug: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]*$/i.test(slug) && existsSync(path.join(workingRoot(), slug, ".manifest.json"));
+}
+
+/**
  * Per-client geo defaults from the onboarding profile
  * (<brain>/<slug>/.manifest.json → profile.targeting). Null for legacy clients.
  */
 export function clientGeo(slug: string | null): { location_name?: string; language_name?: string } | null {
-  if (!slug) return null;
+  if (!slug || !isKnownClient(slug)) return null; // invalid/unknown slug -> global defaults
   try {
     const raw = readFileSync(path.join(workingRoot(), slug, ".manifest.json"), "utf8");
     const t = JSON.parse(raw)?.profile?.targeting;

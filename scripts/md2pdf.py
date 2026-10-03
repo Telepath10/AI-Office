@@ -116,8 +116,12 @@ def obsidian_to_html_md(text, assets_root):
     """Obsidian syntax -> plain markdown/HTML for the PDF."""
     text = "\n".join(l for l in text.splitlines() if "PDF version:" not in l)
 
+    root = Path(assets_root).resolve()
+
     def embed(m):
-        src = (Path(assets_root) / m.group(1)).resolve()
+        src = (root / m.group(1)).resolve()
+        if not src.is_relative_to(root):
+            return f"[image omitted: {Path(m.group(1)).name}]"
         if not src.exists():
             return ""
         return f'<img class="chart" src="{src.as_uri()}">'

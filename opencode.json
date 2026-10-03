@@ -8,8 +8,20 @@
       "mode": "primary",
       "permission": {
         "task": "allow",
-        "bash": "allow",
-        "read": "allow",
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_spend": "allow",
@@ -25,8 +37,20 @@
       "description": "Technical SEO specialist: crawlability, indexability, meta tags, performance (CWV), sitemaps, hreflang, security headers, JS rendering.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_onpage_instant": "allow",
@@ -35,15 +59,41 @@
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-content": {
       "description": "Content & strategy specialist: E-E-A-T analysis, GEO/AI-search visibility, brand positioning, BEAST planning, FLOW framework, content briefs, topic clustering, programmatic SEO.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_llm_mentions_metrics": "allow",
@@ -56,15 +106,41 @@
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "allow"
+        "social_*": "allow",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-keywords": {
       "description": "Keywords & SERP specialist: keyword research (volume, difficulty, intent), SERP analysis, SXO scoring, competitor comparison page generation.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_keyword_ideas": "allow",
@@ -83,15 +159,41 @@
         "dataforseo_dataforseo_llm_models": "allow",
         "social_*": "deny",
         "social_social_search": "allow",
-        "social_social_trends": "allow"
+        "social_social_trends": "allow",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-backlinks": {
       "description": "Backlinks & off-page specialist: domain authority, anchor text distribution, toxic-link detection, CommonCrawl and Bing fallback.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_backlinks": "allow",
@@ -104,30 +206,82 @@
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-schema": {
       "description": "Schema & structured data specialist: JSON-LD detection, validation, and generation against Schema.org standards. Gates for deprecated types.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_serp": "allow",
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-local": {
       "description": "Local & maps specialist: Google Business Profile, NAP consistency, business listings, map-pack geo-grid rankings, reviews, e-commerce SEO.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_serp_maps": "allow",
@@ -137,35 +291,102 @@
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-google": {
       "description": "Google APIs specialist: PageSpeed Insights, CrUX history, Search Console queries, GA4 reporting, image audit, drift monitoring.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_serp": "allow",
         "dataforseo_dataforseo_onpage": "allow",
         "dataforseo_dataforseo_domain_summary": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow"
       }
     },
     "seo-vault": {
       "description": "Vault health specialist: schema drift linting, dead wikilinks, unresolved tokens, evidence thresholds, archival snapshots, brain review for hallucinations.",
       "mode": "subagent",
       "permission": {
-        "read": "allow",
-        "bash": "allow",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "pnpm *": "allow",
+          "node mcp/*": "allow",
+          "python3 *": "allow",
+          "bash scripts/*": "allow",
+          "vendored/*/.venv/bin/python *": "allow"
+        },
         "edit": "deny",
         "dataforseo_*": "deny",
         "dataforseo_dataforseo_spend": "allow",
         "dataforseo_dataforseo_llm_models": "allow",
-        "social_*": "deny"
+        "social_*": "deny",
+        "vault_*": "deny",
+        "vault_vault_read_note": "allow",
+        "vault_vault_write_note": "allow",
+        "vault_vault_list_notes": "allow",
+        "vault_vault_tree": "allow",
+        "vault_vault_read_hot": "allow",
+        "vault_vault_append_log": "allow",
+        "vault_vault_add_evidence": "allow",
+        "vault_vault_query_evidence": "allow",
+        "vault_vault_evidence_count": "allow",
+        "vault_vault_list_clients": "allow",
+        "vault_vault_list_published": "allow",
+        "vault_vault_render_audit": "allow",
+        "vault_vault_check_content": "allow",
+        "vault_vault_cleanup": "allow"
       }
     }
   },
@@ -259,10 +480,18 @@
   "permission": {
     "edit": "allow",
     "bash": {
+      "*": "ask",
       "pnpm *": "allow",
       "node mcp/*": "allow",
       "python3 *": "allow",
-      "*": "ask"
+      "bash scripts/*": "allow",
+      "vendored/*/.venv/bin/python *": "allow"
+    },
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow"
     }
   }
 }

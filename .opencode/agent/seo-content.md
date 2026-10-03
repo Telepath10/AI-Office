@@ -2,8 +2,18 @@
 description: Content & strategy specialist — E-E-A-T analysis, GEO/AI-search visibility, brand positioning, BEAST planning, FLOW framework, content briefs, topic clustering, programmatic SEO, humanization.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 

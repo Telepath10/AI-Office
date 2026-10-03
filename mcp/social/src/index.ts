@@ -10,6 +10,9 @@ import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { redact, tail } from "./util.js";
+
+const MAX_INLINE_CHARS = 200_000;
 
 const ROOT = process.cwd();
 const AR = path.join(ROOT, "vendored", "agent-reach");
@@ -48,10 +51,13 @@ function runFetch(action: string, args: Record<string, unknown>): Promise<any> {
       try {
         resolve(JSON.parse(out));
       } catch {
-        reject(new Error(`social_fetch.py ${action} exited ${code}: ${(err || out).slice(-600)}`));
+        reject(new Error(`social_fetch.py ${action} exited ${code}: ${redact(tail(err || out))}`));
       }
     });
-    child.on("error", (e) => reject(e));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(new Error(`social_fetch.py ${action} failed to start: ${redact(e.message)}`));
+    });
   });
 }
 
@@ -117,7 +123,19 @@ async function writeSocialAccessBlock(slug: string | undefined, status: any): Pr
 }
 
 function text(obj: unknown) {
-  return { content: [{ type: "text", text: JSON.stringify(obj, null, 2) }] };
+  const full = JSON.stringify(obj, null, 2);
+  if (full.length <= MAX_INLINE_CHARS) return { content: [{ type: "text", text: full }] };
+  const rawPath = (obj as { raw_path?: string | null } | null)?.raw_path ?? null;
+  const out = {
+    truncated: true,
+    original_chars: full.length,
+    raw_path: rawPath,
+    note: rawPath
+      ? `Response exceeded ${MAX_INLINE_CHARS} chars; the full result is in raw_path (relative to the client brain dir). preview holds the first part.`
+      : `Response exceeded ${MAX_INLINE_CHARS} chars; only the first part is shown. Pass a valid client_slug to save the full result under .raw/social/.`,
+    preview: full.slice(0, MAX_INLINE_CHARS),
+  };
+  return { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] };
 }
 
 const CLIENT_SLUG = { type: "string", description: "Client slug: localises news/region from the onboarding profile and saves raw results to .raw/social/" };
@@ -235,7 +253,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
     }
   } catch (err) {
-    return { content: [{ type: "text", text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    return { content: [{ type: "text", text: `Error: ${redact(err instanceof Error ? err.message : String(err))}` }], isError: true };
   }
 });
 

@@ -2,8 +2,18 @@
 description: Technical SEO specialist — crawlability, indexability, meta tags, Core Web Vitals, sitemaps, hreflang, security headers, JS rendering.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 

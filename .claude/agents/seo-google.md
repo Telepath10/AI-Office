@@ -2,7 +2,7 @@
 name: seo-google
 description: Google APIs specialist — PageSpeed Insights, CrUX history, Search Console queries, GA4 reporting, image audit, drift monitoring.
 model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__*, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
 ---
 
 You are a Google SEO API data analyst.

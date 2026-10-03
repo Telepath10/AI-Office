@@ -88,9 +88,9 @@ All audit output follows `skills/audit-report/SKILL.md` (`audit-data` → `rende
 ## Spend report (orchestrator, after every client run)
 There is no budget cap. Instead the user sees spend after every run:
 1. Before dispatching, note the run start as a full ISO timestamp.
-2. After the run, call `dataforseo_spend({client_slug, since: <start ISO>})` for this run and `dataforseo_spend({client_slug})` for the total to date.
-3. Tell the user, in one line: `DataForSEO this run: $X (N calls; top tools …) · <client> total to date: $Y · account balance: $Z`.
-4. Replace the `## DataForSEO spend` block in hot.md with the total to date, last run cost and date, then `append_log` the run cost.
+2. After the run, call `dataforseo_spend({client_slug, since: <start ISO>})` for this run and `dataforseo_spend({client_slug})` for the total to date, plus `crawlers_spend({client_slug, since: <start ISO>})` and `crawlers_spend({client_slug})` for Firecrawl credits.
+3. Tell the user, in one line: `DataForSEO this run: $X (N calls; top tools …) · Firecrawl this run: N credits · <client> total to date: $Y / N credits · account balance: $Z`.
+4. Replace the `## DataForSEO spend` block in hot.md with the total to date, last run cost and date (DataForSEO $ and Firecrawl credits), then `append_log` the run cost.
 
 ## Client weighting
 - **Local service business** (e.g. afdindia, a coaching centre in Kochi): phases 0–1 weighted towards local. Geo-grid around the business address for course and service keywords; reviews compared with local competitors; `google_trends` for exam or seasonal windows; GEO questions phrased the way locals ask ("best NATA coaching in Kerala").

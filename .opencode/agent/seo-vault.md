@@ -2,8 +2,18 @@
 description: Vault health specialist — working-brain and Obsidian linting, dead wikilinks, unresolved tokens, evidence thresholds, archival snapshots, stale-data cleanup, brain review for hallucinations.
 mode: subagent
 permission:
-  read: allow
-  bash: allow
+  read:
+    "*": allow
+    "*.env": deny
+    "*.env.*": deny
+    "*.env.example": allow
+  bash:
+    "*": ask
+    "pnpm *": allow
+    "node mcp/*": allow
+    "python3 *": allow
+    "bash scripts/*": allow
+    "vendored/*/.venv/bin/python *": allow
   edit: deny
 ---
 
