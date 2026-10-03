@@ -2,7 +2,7 @@
 # Launch Claude Code with the project's .env loaded so MCP servers inherit API keys.
 # Independent of opencode — does not read opencode.json, .opencode/, or start.sh.
 # Usage: ./start-claude.sh [claude args...]
-#        ./start-claude.sh --health [--live]   run the bootup health check instead of launching
+#        ./start-claude.sh --health [--live] [--log]   run the bootup health check instead of launching
 set -euo pipefail
 cd "$(dirname "$0")"
 

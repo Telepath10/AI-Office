@@ -1,3 +1,4 @@
+import "./env.js"; // must stay first: repo-root cwd + .env loading
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";

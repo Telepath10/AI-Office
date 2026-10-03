@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch opencode with the project's .env loaded so MCP servers inherit API keys.
 # Usage: ./start.sh [opencode args...]
-#        ./start.sh --health [--live]   run the bootup health check instead of launching
+#        ./start.sh --health [--live] [--log]   run the bootup health check instead of launching
 set -euo pipefail
 cd "$(dirname "$0")"
 if [ -f .env ]; then

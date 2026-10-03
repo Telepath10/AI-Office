@@ -1,6 +1,7 @@
 // Social trends & news MCP server (read-only) on top of the agent-reach toolchain in vendored/agent-reach.
 // Platforms: youtube, news (Google News RSS), reddit, twitter, instagram, facebook.
 // Login platforms use DEDICATED accounts only (env cookies / dedicated OpenCLI Chrome profile).
+import "./env.js"; // must stay first: repo-root cwd + .env loading
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";

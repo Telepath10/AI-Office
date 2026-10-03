@@ -54,7 +54,7 @@ The following MCP servers provide data access. Subagents use these via the tools
 - **python-scripts** — CommonCrawl backlinks, page fetching, drift comparison, Moz API, NLP analysis. Additional vendored scripts (gsc_query, ga4_report, crux_history, keyword_planner, etc.) are **not** MCP-registered — run them via Bash with `PYTHON_SCRIPTS_DIR=vendored/claude-seo/scripts`.
 - **crawlers** — unified web crawling: Firecrawl (JS-rendered, credits), Scrapling (free, anti-bot/Cloudflare bypass), Crawl4AI (free, LLM-optimized markdown). Auto-routes Scrapling→Firecrawl fallback. Tools: `crawlers_scrape`, `crawlers_scrape_scrapling`, `crawlers_scrape_firecrawl`, `crawlers_scrape_crawl4ai`, `crawlers_map`, `crawlers_crawl`, `crawlers_crawl_crawl4ai`, `crawlers_crawl_scrapling`. Saves to brain `.raw/crawlers/`
 
-In Claude Code these tools appear as `mcp__<server>__<tool>` (e.g. `mcp__vault__publish_note`). Refer to them by function name in prompts; the harness resolves the prefix.
+In Claude Code these tools appear as `mcp__<server>__<server-prefix>_<tool>`, e.g. `mcp__vault__vault_publish_note`, `mcp__vault__vault_render_audit`, `mcp__dataforseo__dataforseo_spend`. This prompt uses short names (`publish_note`, `render_audit`) as shorthand; nothing resolves them for you, so always call the full tool name.
 
 ## DataForSEO ownership and spend
 

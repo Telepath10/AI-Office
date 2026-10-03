@@ -1,11 +1,33 @@
+import "./env.js"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
-const GOOGLE_ADC = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+// Valid GA4 Data API metrics; "organic" comes from the channel-group filter.
+const DEFAULT_GA4_METRICS = "sessions,totalUsers,keyEvents";
+const DEFAULT_GA4_CHANNEL = "Organic Search";
+
+function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
+}
+
+// Blank GOOGLE_APPLICATION_CREDENTIALS = gcloud's default ADC location.
+function adcPath(): string {
+  const configured = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  return configured
+    ? expandHome(configured)
+    : join(homedir(), ".config/gcloud/application_default_credentials.json");
+}
+
+const GOOGLE_ADC: string | undefined = existsSync(adcPath()) ? adcPath() : undefined;
 
 function missingApiKey(name: string): never {
   throw new Error(
@@ -15,20 +37,24 @@ function missingApiKey(name: string): never {
 
 function missingAdc(name: string): never {
   throw new Error(
-    `${name} requires GOOGLE_APPLICATION_CREDENTIALS environment variable to be set (gcloud ADC)`
+    `${name} needs Google ADC credentials. Run \`gcloud auth application-default login --client-id-file=<your Desktop OAuth client JSON> \` ` +
+      `--scopes=...cloud-platform,...webmasters.readonly,...analytics.readonly (see .env.example) ` +
+      `or set GOOGLE_APPLICATION_CREDENTIALS to a credentials JSON file (checked: ${adcPath()})`
   );
 }
 
+let quotaProjectCache: string | undefined;
 function getQuotaProject(): string {
+  if (quotaProjectCache !== undefined) return quotaProjectCache;
+  const fromEnv = process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim();
+  if (fromEnv) return (quotaProjectCache = fromEnv);
   try {
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
-    const { homedir } = require("node:os") as typeof import("node:os");
-    const { join } = require("node:path") as typeof import("node:path");
-    const raw = readFileSync(join(homedir(), ".config/gcloud/application_default_credentials.json"), "utf8");
-    return JSON.parse(raw).quota_project_id ?? "";
+    const raw = readFileSync(adcPath(), "utf8");
+    quotaProjectCache = (JSON.parse(raw).quota_project_id as string | undefined) ?? "";
   } catch {
-    return "";
+    quotaProjectCache = "";
   }
+  return quotaProjectCache;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
@@ -154,8 +180,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           metrics: {
             type: "string",
-            default: "organicSearchSessions,organicSearchUsers,organicSearchConversions",
-            description: "Comma-separated metric names",
+            default: DEFAULT_GA4_METRICS,
+            description: "Comma-separated GA4 Data API metric names (e.g. sessions, totalUsers, keyEvents, engagedSessions)",
+          },
+          channel_group: {
+            type: "string",
+            default: DEFAULT_GA4_CHANNEL,
+            description: "Filter by sessionDefaultChannelGroup (default \"Organic Search\"). Pass \"all\" for no filter.",
           },
         },
         required: ["property_id", "start_date", "end_date"],
@@ -261,13 +292,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         property_id,
         start_date,
         end_date,
-        metrics = "organicSearchSessions,organicSearchUsers,organicSearchConversions",
+        metrics = DEFAULT_GA4_METRICS,
+        channel_group = DEFAULT_GA4_CHANNEL,
       } = args as {
         property_id: string;
         start_date: string;
         end_date: string;
         metrics?: string;
+        channel_group?: string;
       };
+      const channel = channel_group.trim();
+      const dimensionFilter =
+        channel && channel.toLowerCase() !== "all"
+          ? {
+              filter: {
+                fieldName: "sessionDefaultChannelGroup",
+                stringFilter: { matchType: "EXACT", value: channel },
+              },
+            }
+          : undefined;
       const propId = property_id.startsWith("properties/")
         ? property_id
         : `properties/${property_id}`;
@@ -283,6 +326,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           body: JSON.stringify({
             dateRanges: [{ startDate: start_date, endDate: end_date }],
             metrics: metricList,
+            ...(dimensionFilter ? { dimensionFilter } : {}),
           }),
         }
       );
@@ -296,7 +340,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+let tokenCache: { token: string; expires: number } | undefined;
+const TOKEN_TTL_MS = 50 * 60 * 1000;
+
 async function getAccessToken(): Promise<string> {
+  if (tokenCache && tokenCache.expires > Date.now()) return tokenCache.token;
+  const token = await fetchAccessToken();
+  tokenCache = { token, expires: Date.now() + TOKEN_TTL_MS };
+  return token;
+}
+
+async function fetchAccessToken(): Promise<string> {
   const { spawn } = await import("node:child_process");
   return new Promise((resolve, reject) => {
     const child = spawn("gcloud", ["auth", "application-default", "print-access-token"], {

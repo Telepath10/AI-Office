@@ -1,3 +1,4 @@
+import "./env.js"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {

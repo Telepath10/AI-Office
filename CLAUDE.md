@@ -13,15 +13,15 @@ Either harness works if the other is deleted. Nothing in one harness’s config 
 
 - Node >= 22, pnpm
 - `pnpm build` once (builds `mcp/*/dist` for both harnesses)
-- `.env` with API keys (copy from `.env.example`)
+- `.env` with API keys (copy from `.env.example`). Each MCP server loads it on startup and runs from the repo root, so `claude` works without the launcher; variables already exported (e.g. by `start-claude.sh`) win.
 - Python venvs under `vendored/` (see `.env.example`)
-- Google ADC for Search Console/GA4: `gcloud auth application-default login`
+- Google ADC for Search Console/GA4 (needs the GSC + Analytics scopes and your own Desktop OAuth client; gcloud's built-in client gets "This app is blocked"): `gcloud auth application-default login --client-id-file="$HOME/.config/gcloud/seo-office-oauth-client.json" --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly,https://www.googleapis.com/auth/analytics.readonly`
 
 ## Claude Code session
 
 Default agent is `seo-slop` (set in `.claude/settings.json`). Skills live in repo `skills/` and are discovered via `.claude/skills/` symlinks.
 
-MCP tools appear as `mcp__<server>__<tool>` (e.g. `mcp__vault__publish_note`). Prose prompts refer to them by function name (`publish_note`).
+MCP tools appear as `mcp__<server>__<server-prefix>_<tool>`, e.g. `mcp__vault__vault_publish_note`, `mcp__dataforseo__dataforseo_spend`, `mcp__google-apis__google_pagespeed`. Prose prompts use the short name (`publish_note`, `render_audit`) as shorthand only; nothing resolves it automatically, so call the full name.
 
 Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools.
 

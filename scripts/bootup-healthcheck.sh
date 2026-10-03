@@ -4,9 +4,10 @@
 # Usage:
 #   bash scripts/bootup-healthcheck.sh          # offline checks only
 #   bash scripts/bootup-healthcheck.sh --live   # + live API smoke tests (costs a few credits)
+#   bash scripts/bootup-healthcheck.sh --log    # also append a one-line summary to .seo-brain/log.md
 #
 # Reports: businesses, files per business, remaining pipeline steps, API key
-# status, workflow health, temp cruft. Appends a dated summary to .seo-brain/log.md.
+# status, workflow health, temp cruft. With --log, appends a dated summary to .seo-brain/log.md.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,7 +18,13 @@ case "$BRAIN" in "~/"*) BRAIN="$HOME/${BRAIN#\~/}" ;; esac
 case "$OBSIDIAN" in "~/"*) OBSIDIAN="$HOME/${OBSIDIAN#\~/}" ;; esac
 ENV_FILE="$ROOT/.env"
 LIVE=0
-[[ "${1:-}" == "--live" ]] && LIVE=1
+WRITE_LOG=0
+for arg in "$@"; do
+  case "$arg" in
+    --live) LIVE=1 ;;
+    --log)  WRITE_LOG=1 ;;
+  esac
+done
 
 # ─── pretty helpers ──────────────────────────────────────────────────────────
 GRN=$'\033[0;32m'; YLW=$'\033[0;33m'; RED=$'\033[0;31m'; CYN=$'\033[0;36m'; RST=$'\033[0m'
@@ -347,15 +354,24 @@ fi
 # ─── 5. workflows ────────────────────────────────────────────────────────────
 HDR "5. Workflow health"
 
-# MCP dist builds fresh vs src
+# MCP dist builds fresh vs src: dist/index.js must be newer than EVERY file under src/
+# and the server's tsconfig.json (not just src/index.ts).
+build_script() {  # mcp folder -> root package.json build script
+  case "$1" in
+    google-apis)    echo "build:google" ;;
+    python-scripts) echo "build:python" ;;
+    *)              echo "build:$1" ;;
+  esac
+}
 for d in vault dataforseo google-apis crawlers python-scripts social; do
-  src="$ROOT/mcp/$d/src/index.ts"; dist="$ROOT/mcp/$d/dist/index.js"
+  dist="$ROOT/mcp/$d/dist/index.js"
   if [ -f "$dist" ]; then
-    if [ "$dist" -nt "$src" ] || [ "$dist" -nt "$ROOT/mcp/$d/tsconfig.json" ] 2>/dev/null; then
+    newer=$(find "$ROOT/mcp/$d/src" "$ROOT/mcp/$d/tsconfig.json" -type f -newer "$dist" 2>/dev/null | head -1)
+    if [ -z "$newer" ]; then
       PASS "mcp/$d — dist present & fresh"
       ok
     else
-      WARN "mcp/$d — dist stale (re-run: pnpm build:$d)"; wrn
+      WARN "mcp/$d — dist stale (${newer#$ROOT/} is newer; re-run: pnpm $(build_script "$d"))"; wrn
     fi
   else
     FAIL "mcp/$d — dist missing"; err
@@ -367,11 +383,11 @@ PYBIN="${PYTHON_BIN:-$ROOT/vendored/claude-seo/.venv/bin/python}"
 if [ -x "$PYBIN" ]; then
   PASS "python venv — $("$PYBIN" --version 2>&1)"
   ok
-  for pkg in requests; do
+  for pkg in requests bs4 lxml; do
     if "$PYBIN" -c "import $pkg" 2>/dev/null; then
       PASS "venv has '$pkg'"; ok
     else
-      FAIL "venv missing '$pkg'"; err
+      FAIL "venv missing '$pkg' (pip install -r vendored/claude-seo/requirements.txt)"; err
     fi
   done
   for pkg in matplotlib numpy; do
@@ -382,7 +398,7 @@ if [ -x "$PYBIN" ]; then
     fi
   done
 else
-  FAIL "python venv missing at $PYBIN (create: python3 -m venv vendored/claude-seo/.venv && pip install requests)"; err
+  FAIL "python venv missing at $PYBIN (create: python3 -m venv vendored/claude-seo/.venv && vendored/claude-seo/.venv/bin/pip install -r vendored/claude-seo/requirements.txt)"; err
 fi
 
 # root .venv for the markdown→PDF pipeline (md2pdf.py / regenerate_pdfs.py)
@@ -558,8 +574,8 @@ else
   printf "  ${RED}Health: issues found — see above${RST}\n"
 fi
 
-# log.md append
-if [ -d "$BRAIN" ]; then
+# log.md append (opt-in: --log), so routine health checks don't grow the log
+if [ "$WRITE_LOG" -eq 1 ] && [ -d "$BRAIN" ]; then
   LOG_LINES="- $(date -u +%Y-%m-%dT%H:%M:%SZ) — bootup health check: $PASS_COUNT pass, $WARN_COUNT warn, $FAIL_COUNT fail"
   [ "$LIVE" -eq 1 ] && LOG_LINES="$LOG_LINES (live)"
   { printf '\n%s\n' "$LOG_LINES"; } >> "$BRAIN/log.md" 2>/dev/null || INFO "note: could not append to $BRAIN/log.md"
