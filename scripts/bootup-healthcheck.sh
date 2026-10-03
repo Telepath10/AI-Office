@@ -12,6 +12,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BRAIN="${SEO_BRAIN_HOME:-$ROOT/.seo-brain}"
 OBSIDIAN="${SEO_OBSIDIAN_VAULT:-$HOME/Documents/Obsidian/Office}"
+# expand a leading ~ in env-provided paths (find/cp do NOT expand tilde)
+case "$BRAIN" in "~/"*) BRAIN="$HOME/${BRAIN#\~/}" ;; esac
+case "$OBSIDIAN" in "~/"*) OBSIDIAN="$HOME/${OBSIDIAN#\~/}" ;; esac
 ENV_FILE="$ROOT/.env"
 LIVE=0
 [[ "${1:-}" == "--live" ]] && LIVE=1
@@ -124,11 +127,49 @@ check_key_presence "GOOGLE_API_KEY"       "${GOOGLE_API_KEY:-}"
 check_key_presence "GOOGLE_APPLICATION_CREDENTIALS" "${GOOGLE_APPLICATION_CREDENTIALS:-}"
 check_key_presence "BING_WEBMASTER_API_KEY" "${BING_WEBMASTER_API_KEY:-}"
 check_key_presence "FIRECRAWL_API_KEY"    "${FIRECRAWL_API_KEY:-}"
-if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
-  PASS "MOZ_ACCESS_ID / MOZ_SECRET_KEY — set"; ok
+if [ -n "${CRAWLERS_PYTHON_BIN:-}" ]; then
+  crawlers_py="$CRAWLERS_PYTHON_BIN"
+  case "$crawlers_py" in /*) ;; *) crawlers_py="$ROOT/$crawlers_py" ;; esac
+  if [ -x "$crawlers_py" ] || command -v "$CRAWLERS_PYTHON_BIN" >/dev/null 2>&1; then
+    PASS "CRAWLERS_PYTHON_BIN — set ($CRAWLERS_PYTHON_BIN)"; ok
+  else
+    WARN "CRAWLERS_PYTHON_BIN — set but not executable ($CRAWLERS_PYTHON_BIN)"; wrn
+  fi
 else
-  WARN "MOZ_ACCESS_ID / MOZ_SECRET_KEY — not configured (optional; DataForSEO is primary)"; wrn
+  WARN "CRAWLERS_PYTHON_BIN — not set (crawlers MCP optional)"; wrn
 fi
+if [ -n "${CRAWLERS_SCRIPTS_DIR:-}" ]; then
+  crawlers_dir="$CRAWLERS_SCRIPTS_DIR"
+  case "$crawlers_dir" in /*) ;; *) crawlers_dir="$ROOT/$crawlers_dir" ;; esac
+  if [ -d "$crawlers_dir" ]; then
+    PASS "CRAWLERS_SCRIPTS_DIR — present ($CRAWLERS_SCRIPTS_DIR)"; ok
+  else
+    WARN "CRAWLERS_SCRIPTS_DIR — missing ($CRAWLERS_SCRIPTS_DIR)"; wrn
+  fi
+else
+  WARN "CRAWLERS_SCRIPTS_DIR — not set (crawlers MCP optional)"; wrn
+fi
+# Moz optional — skipped; DataForSEO is primary backlink path
+if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
+  PASS "Moz — set (optional; DataForSEO remains primary)"; ok
+else
+  INFO "Moz — not configured (optional/skipped; use DataForSEO backlinks)"
+fi
+
+# Social trends & news (social MCP): dedicated accounts only. Missing credentials are a reminder, not a failure.
+AR_PY="$ROOT/vendored/agent-reach/.venv/bin/python"
+if [ -x "$AR_PY" ] && [ -x "$ROOT/vendored/agent-reach/.venv/bin/yt-dlp" ]; then
+  PASS "agent-reach toolchain — installed (YouTube + Google News ready)"; ok
+else
+  WARN "agent-reach toolchain — missing (python3 -m venv vendored/agent-reach/.venv && vendored/agent-reach/.venv/bin/pip install -r vendored/agent-reach/requirements.txt)"; wrn
+fi
+SOCIAL_MISSING=""
+{ [ -n "${TWITTER_AUTH_TOKEN:-}" ] && [ -n "${TWITTER_CT0:-}" ]; } && { PASS "X/Twitter — dedicated account cookies set"; ok; } || SOCIAL_MISSING="$SOCIAL_MISSING X(TWITTER_AUTH_TOKEN/TWITTER_CT0)"
+[ -n "${REDDIT_SESSION:-}" ] && { PASS "Reddit — dedicated account cookie set"; ok; } || SOCIAL_MISSING="$SOCIAL_MISSING Reddit(REDDIT_SESSION)"
+if [ -n "$SOCIAL_MISSING" ]; then
+  WARN "Social accounts not connected:$SOCIAL_MISSING. Provide the dedicated-account cookies in .env"; wrn
+fi
+INFO "Instagram/Facebook — need the dedicated Chrome profile with the OpenCLI extension open (checked live by social_status)"
 
 if [ "$LIVE" -eq 1 ]; then
   HDR "4b. Live API smoke tests"
@@ -181,6 +222,46 @@ if [ "$LIVE" -eq 1 ]; then
     WARN "Google PSI — skipped (no real GOOGLE_API_KEY)"; wrn
   fi
 
+  # GSC + GA4 — ADC token scope check (free, validates gcloud OAuth scopes)
+  if command -v gcloud >/dev/null 2>&1; then
+    token=$(gcloud auth application-default print-access-token 2>/dev/null)
+    if [ -n "$token" ]; then
+      quota_project=$(python3 -c "import json; from pathlib import Path; print(json.load(open(Path.home()/'.config/gcloud/application_default_credentials.json')).get('quota_project_id',''))" 2>/dev/null || echo "")
+      scope_info=$(curl -s -m 10 "https://oauth2.googleapis.com/tokeninfo?access_token=$token" 2>/dev/null)
+      scope_str=$(echo "$scope_info" | python3 -c "import sys,json; print(json.load(sys.stdin).get('scope',''))" 2>/dev/null || echo "")
+      # cloud-platform grants all scopes; otherwise require webmasters.readonly + analytics.readonly
+      if echo "$scope_str" | grep -q "cloud-platform"; then
+        scope_ok=1
+      else
+        scope_ok=1
+        for need in webmasters.readonly analytics.readonly; do
+          if ! echo "$scope_str" | grep -q "$need"; then
+            scope_ok=0
+          fi
+        done
+      fi
+      if [ "$scope_ok" = "1" ]; then
+        gsc_headers=(-H "Authorization: Bearer $token")
+        if [ -n "$quota_project" ]; then
+          gsc_headers+=(-H "X-Goog-User-Project: $quota_project")
+        fi
+        gsc_code=$(curl -s -o /tmp/gsc_health.json -w "%{http_code}" -m 15 "${gsc_headers[@]}" "https://searchconsole.googleapis.com/webmasters/v3/sites")
+        if [ "$gsc_code" = "200" ]; then
+          PASS "Google GSC — live OK (ADC scopes valid)"; ok
+        else
+          FAIL "Google GSC — HTTP $gsc_code $(head -c 160 /tmp/gsc_health.json)"; err
+        fi
+        rm -f /tmp/gsc_health.json
+      else
+        WARN "Google ADC — token missing webmasters/analytics scopes (re-auth: gcloud auth application-default login)"; wrn
+      fi
+    else
+      WARN "Google ADC — no token (run gcloud auth application-default login)"; wrn
+    fi
+  else
+    WARN "Google GSC — skipped (no gcloud)"; wrn
+  fi
+
   # Bing Webmaster — list verified sites (free, validates the key)
   if [ -n "${BING_WEBMASTER_API_KEY:-}" ] && ! placeholder "${BING_WEBMASTER_API_KEY:-}"; then
     code=$(curl -s -o /tmp/bing_health.json -w "%{http_code}" -m 20 \
@@ -197,11 +278,67 @@ if [ "$LIVE" -eq 1 ]; then
     WARN "Bing Webmaster — skipped (no real key)"; wrn
   fi
 
-  # Moz — free tier ~50 rows/mo; only if present
+  # Moz — skipped by default; DataForSEO is primary backlink path
   if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
-    WARN "Moz — present but not smoke-tested (credit-gated)"; wrn
+    INFO "Moz — present but not smoke-tested (optional; DataForSEO primary)"
   else
-    WARN "Moz — not configured (optional; DataForSEO is primary)"; wrn
+    INFO "Moz — not configured (optional/skipped; DataForSEO backlinks are primary)"
+  fi
+
+  # DataForSEO backlinks — primary backlink path (summary live call, ~$0.02)
+  if [ -n "${DATAFORSEO_LOGIN:-}" ] && [ -n "${DATAFORSEO_PASSWORD:-}" ]; then
+    code=$(curl -s -o /tmp/dfs_bl_health.json -w "%{http_code}" -m 30 \
+      -u "$DATAFORSEO_LOGIN:$DATAFORSEO_PASSWORD" \
+      -H "Content-Type: application/json" \
+      -d '[{"target":"example.com"}]' \
+      "https://api.dataforseo.com/v3/backlinks/summary/live")
+    if [ "$code" = "200" ] && grep -qE '"status_code"[[:space:]]*:[[:space:]]*20000' /tmp/dfs_bl_health.json; then
+      PASS "DataForSEO backlinks — live OK (summary)"; ok
+    else
+      WARN "DataForSEO backlinks — smoke failed (HTTP $code $(head -c 120 /tmp/dfs_bl_health.json 2>/dev/null))"; wrn
+    fi
+    rm -f /tmp/dfs_bl_health.json
+  else
+    WARN "DataForSEO backlinks — skipped (no creds)"; wrn
+  fi
+
+  # DataForSEO AI/GEO — LLM Mentions live smoke (~$0.05, platform=google)
+  if [ -n "${DATAFORSEO_LOGIN:-}" ] && [ -n "${DATAFORSEO_PASSWORD:-}" ]; then
+    code=$(curl -s -o /tmp/dfs_geo_health.json -w "%{http_code}" -m 30 \
+      -u "$DATAFORSEO_LOGIN:$DATAFORSEO_PASSWORD" \
+      -H "Content-Type: application/json" \
+      -d '[{"keyword":"seo","platform":"google","location_name":"United States","language_name":"English","limit":1}]' \
+      "https://api.dataforseo.com/v3/ai_optimization/llm_mentions/search_mentions/live")
+    if [ "$code" = "200" ] && grep -qE '"status_code"[[:space:]]*:[[:space:]]*20000' /tmp/dfs_geo_health.json; then
+      PASS "DataForSEO AI/GEO — live OK (llm_mentions search, platform=google)"; ok
+    elif [ "$code" = "200" ] && grep -qiE 'not available|product|enable|payment|billing' /tmp/dfs_geo_health.json 2>/dev/null; then
+      WARN "DataForSEO AI/GEO — API reachable but product not enabled/billed (enable AI Optimization in DataForSEO dashboard)"; wrn
+    else
+      WARN "DataForSEO AI/GEO — smoke failed (HTTP $code $(head -c 160 /tmp/dfs_geo_health.json 2>/dev/null))"; wrn
+    fi
+    rm -f /tmp/dfs_geo_health.json
+  else
+    WARN "DataForSEO AI/GEO — skipped (no creds)"; wrn
+  fi
+
+  # DataForSEO LLM Responses — Live smoke (~$0.01, claude-haiku-4-5, web_search=false)
+  if [ -n "${DATAFORSEO_LOGIN:-}" ] && [ -n "${DATAFORSEO_PASSWORD:-}" ]; then
+    code=$(curl -s -o /tmp/dfs_llmresp_health.json -w "%{http_code}" -m 120 \
+      -u "$DATAFORSEO_LOGIN:$DATAFORSEO_PASSWORD" \
+      -H "Content-Type: application/json" \
+      -d '[{"user_prompt":"Say hello in one word.","model_name":"claude-haiku-4-5","web_search":false,"max_output_tokens":20}]' \
+      "https://api.dataforseo.com/v3/ai_optimization/claude/llm_responses/live")
+    if [ "$code" = "200" ] && grep -qE '"status_code"[[:space:]]*:[[:space:]]*20000' /tmp/dfs_llmresp_health.json; then
+      cost=$(python3 -c "import json,sys; d=json.load(open('/tmp/dfs_llmresp_health.json')); t=d.get('tasks',[{}])[0]; r=t.get('result',[{}])[0] if t.get('result') else {}; print(t.get('cost') or r.get('money_spent') or '?')" 2>/dev/null || echo "?")
+      PASS "DataForSEO LLM Responses — live OK (claude-haiku-4-5, ~\$${cost})"; ok
+    elif [ "$code" = "200" ] && grep -qiE 'not available|product|enable|payment|billing' /tmp/dfs_llmresp_health.json 2>/dev/null; then
+      WARN "DataForSEO LLM Responses — API reachable but product not enabled/billed (enable AI Optimization in DataForSEO dashboard)"; wrn
+    else
+      WARN "DataForSEO LLM Responses — smoke failed (HTTP $code $(head -c 160 /tmp/dfs_llmresp_health.json 2>/dev/null))"; wrn
+    fi
+    rm -f /tmp/dfs_llmresp_health.json
+  else
+    WARN "DataForSEO LLM Responses — skipped (no creds)"; wrn
   fi
 else
   INFO "Live smoke tests skipped (pass --live to run; costs a few API credits)."
@@ -211,7 +348,7 @@ fi
 HDR "5. Workflow health"
 
 # MCP dist builds fresh vs src
-for d in vault dataforseo google-apis firecrawl python-scripts; do
+for d in vault dataforseo google-apis crawlers python-scripts social; do
   src="$ROOT/mcp/$d/src/index.ts"; dist="$ROOT/mcp/$d/dist/index.js"
   if [ -f "$dist" ]; then
     if [ "$dist" -nt "$src" ] || [ "$dist" -nt "$ROOT/mcp/$d/tsconfig.json" ] 2>/dev/null; then
@@ -248,6 +385,29 @@ else
   FAIL "python venv missing at $PYBIN (create: python3 -m venv vendored/claude-seo/.venv && pip install requests)"; err
 fi
 
+# root .venv for the markdown→PDF pipeline (md2pdf.py / regenerate_pdfs.py)
+ROOT_PY="$ROOT/.venv/bin/python"
+if [ -x "$ROOT_PY" ]; then
+  PDF_OK=1
+  for pkg in markdown weasyprint; do
+    if "$ROOT_PY" -c "import $pkg" 2>/dev/null; then
+      PASS "pdf venv has '$pkg'"; ok
+    else
+      FAIL "pdf venv missing '$pkg' (pip install -r scripts/requirements.txt)"; err; PDF_OK=0
+    fi
+  done
+  for f in scripts/regenerate_pdfs.py scripts/md2pdf.py; do
+    if [ -f "$ROOT/$f" ]; then
+      PASS "pdf script present — $f"; ok
+    else
+      FAIL "pdf script missing — $f"; err; PDF_OK=0
+    fi
+  done
+  [ "$PDF_OK" -eq 1 ] && INFO "pdf pipeline ready (vault_export_pdfs + regenerate_pdfs.py)"
+else
+  FAIL "pdf venv missing at $ROOT/.venv (create: python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt)"; err
+fi
+
 # gcloud (GSC/GA4)
 if command -v gcloud >/dev/null 2>&1; then
   PASS "gcloud CLI — installed"; ok
@@ -280,11 +440,84 @@ else
   WARN "squirrel CLI not found (audit skill needs it)"; wrn
 fi
 
-# plugin present
-if [ -f "$ROOT/.opencode/plugins/load-env.ts" ]; then
-  PASS "load-env plugin present"; ok
+# Neutral skills home (shared by both harnesses)
+if [ -f "$ROOT/skills/seo-brain/SKILL.md" ] && [ -f "$ROOT/skills/humanizer/SKILL.md" ] && [ -f "$ROOT/skills/seo-basics/SKILL.md" ]; then
+  PASS "neutral skills/ present (seo-brain, seo-basics, humanizer)"; ok
 else
-  FAIL "load-env plugin missing (.opencode/plugins/load-env.ts)"; err
+  FAIL "skills/ missing or incomplete (expected skills/{seo-brain,seo-basics,humanizer}/SKILL.md)"; err
+fi
+
+# ─── Harness layers (optional; each independent of the other) ───────────────
+# Shared runtime (MCP, skills, .env, brain) is checked above.
+# Each harness is validated only if its config exists. Missing one never fails the other.
+
+# opencode layer
+if [ -f "$ROOT/opencode.json" ]; then
+  if [ -f "$ROOT/.opencode/plugins/load-env.ts" ]; then
+    PASS "opencode: load-env plugin present"; ok
+  else
+    FAIL "opencode: load-env plugin missing (.opencode/plugins/load-env.ts)"; err
+  fi
+  if [ -f "$ROOT/.opencode/agent/seo-slop.md" ]; then
+    PASS "opencode: orchestrator agent present"; ok
+  else
+    FAIL "opencode: orchestrator agent missing (.opencode/agent/seo-slop.md)"; err
+  fi
+  if [ -f "$ROOT/start.sh" ]; then
+    PASS "opencode: start.sh present"; ok
+  else
+    FAIL "opencode: start.sh missing"; err
+  fi
+  if grep -q '"paths": \["skills"\]' "$ROOT/opencode.json" 2>/dev/null; then
+    PASS "opencode: skills.paths points at neutral skills/"; ok
+  else
+    WARN "opencode: skills.paths is not [\"skills\"] — update opencode.json"; wrn
+  fi
+else
+  INFO "opencode not configured (no opencode.json) — skip opencode checks"
+fi
+
+# Claude Code layer
+if [ -f "$ROOT/.claude/settings.json" ]; then
+  for a in seo-slop seo-technical seo-content seo-keywords seo-backlinks seo-schema seo-local seo-google seo-vault; do
+    if [ -f "$ROOT/.claude/agents/$a.md" ]; then
+      PASS "claude: agent $a present"; ok
+    else
+      FAIL "claude: agent missing (.claude/agents/$a.md)"; err
+    fi
+  done
+  if [ -f "$ROOT/.mcp.json" ]; then
+    PASS "claude: .mcp.json present"; ok
+  else
+    FAIL "claude: .mcp.json missing"; err
+  fi
+  if [ -f "$ROOT/start-claude.sh" ]; then
+    PASS "claude: start-claude.sh present"; ok
+  else
+    FAIL "claude: start-claude.sh missing"; err
+  fi
+  if [ -f "$ROOT/CLAUDE.md" ]; then
+    PASS "claude: CLAUDE.md present"; ok
+  else
+    WARN "claude: CLAUDE.md missing (project instructions)"; wrn
+  fi
+  for s in seo-brain seo-basics humanizer; do
+    link="$ROOT/.claude/skills/$s"
+    if [ -L "$link" ] && [ -f "$link/SKILL.md" ]; then
+      PASS "claude: skill symlink $s resolves"; ok
+    elif [ -d "$link" ] && [ -f "$link/SKILL.md" ]; then
+      PASS "claude: skill dir $s present"; ok
+    else
+      FAIL "claude: skill $s missing or broken symlink (.claude/skills/$s → ../../skills/$s)"; err
+    fi
+  done
+  if grep -q '"agent": "seo-slop"' "$ROOT/.claude/settings.json" 2>/dev/null; then
+    PASS "claude: default agent is seo-slop"; ok
+  else
+    WARN "claude: default agent not set to seo-slop in .claude/settings.json"; wrn
+  fi
+else
+  INFO "claude not configured (no .claude/settings.json) — skip Claude Code checks"
 fi
 
 # ─── 6. cleanup ──────────────────────────────────────────────────────────────
@@ -303,10 +536,17 @@ PYC=$(find "$ROOT/vendored/claude-seo/scripts" -type d -name "__pycache__" 2>/de
 TMP=$(find "$ROOT" -name "*.tmp.*" -not -path "*/node_modules/*" 2>/dev/null | wc -l | tr -d ' ')
 [ "$TMP" -gt 0 ] && WARN "$TMP temp file(s)" && wrn || { PASS "no .tmp.* files"; ok; }
 
-# stale .published (canonical copy is in Obsidian)
+# stale .published (canonical copy is in Obsidian; warn only when past the 30-day retention)
 for b in "${BUSINESSES[@]:-}"; do
   pn=$(find "$BRAIN/$b/.published" -type f 2>/dev/null | wc -l | tr -d ' ')
-  [ "$pn" -gt 0 ] && INFO "$b: $pn file(s) in .published (cleanup 30-day retention)" && wrn
+  if [ "$pn" -gt 0 ]; then
+    stale=$(find "$BRAIN/$b/.published" -type f -mtime +30 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$stale" -gt 0 ]; then
+      WARN "$b: $stale stale file(s) of $pn in .published (>30d — run vault_cleanup published)" && wrn
+    else
+      INFO "$b: $pn file(s) in .published (fresh; hooks up to 30-day retention)"
+    fi
+  fi
 done
 
 # ─── 7. summary ──────────────────────────────────────────────────────────────

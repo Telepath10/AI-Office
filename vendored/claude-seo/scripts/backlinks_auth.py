@@ -94,7 +94,9 @@ def load_config() -> dict:
         config["moz_api_key"] = os.environ.get("MOZ_API_KEY")
 
     if not config["bing_api_key"]:
-        config["bing_api_key"] = os.environ.get("BING_WEBMASTER_API_KEY")
+        config["bing_api_key"] = os.environ.get("BING_WEBMASTER_API_KEY") or os.environ.get(
+            "BING_API_KEY"
+        )
 
     # Expand cache dir path
     config["commoncrawl_cache_dir"] = os.path.expanduser(

@@ -1,0 +1,20 @@
+{
+  "agent": "seo-slop",
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "Bash(pnpm *)",
+      "Bash(node mcp/*)",
+      "Bash(python3 *)",
+      "Bash(bash scripts/*)",
+      "Bash(vendored/*/.venv/bin/python *)",
+      "Read(./skills/**)",
+      "Read(./.seo-brain/**)"
+    ],
+    "deny": [
+      "Edit",
+      "Write",
+      "Read(./.env)"
+    ]
+  }
+}

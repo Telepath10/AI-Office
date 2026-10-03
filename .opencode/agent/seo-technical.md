@@ -28,12 +28,7 @@ INP replaced FID on March 12, 2024. Never reference FID.
 
 ## Output Format
 
-Provide a structured report with:
-- Pass/fail status per category
-- Technical score (0-100)
-- Prioritized issues (Critical → High → Medium → Low)
-- Specific recommendations with implementation details
-- A `data` fenced code block with JSON containing scores, severity_counts, and signals
+See **Audit deliverable format** below. Technical checks map to categories `get_found`, `speed_experience`, `safety_compliance`, `search_appearance`, `measurement`.
 
 ## Categories to Analyze
 
@@ -49,10 +44,36 @@ Provide a structured report with:
 
 ## Tools available
 
-- `vault` MCP: read/write audit notes, check for existing artifacts
-- `dataforseo` MCP: on-page analysis, site audit data (if available)
-- `google-apis` MCP: PageSpeed Insights, CrUX field data
-- `python-scripts` MCP: fetch_page, pagespeed_check
-- `firecrawl` MCP: `firecrawl_scrape` (JS-rendered single-page fetch — use when a page is an SPA or shows anti-bot challenges), `firecrawl_crawl` (full-site crawl, saves per-page markdown to the brain `.raw/firecrawl/`), `firecrawl_map` (URL/sitemap discovery)
+- `vault` MCP: read/write audit notes, check for existing artifacts, add_evidence/query_evidence
+- `google-apis` MCP: google_pagespeed, google_crux
+- `python-scripts` MCP: python_fetch_page, python_pagespeed_check
+- `crawlers` MCP: `crawlers_scrape` (auto-routes Scrapling→Firecrawl), `crawlers_scrape_scrapling` (free anti-bot, Cloudflare bypass), `crawlers_scrape_firecrawl` (JS-rendered, credits), `crawlers_scrape_crawl4ai` (free, LLM-optimized markdown), `crawlers_crawl` (full-site via Firecrawl), `crawlers_crawl_crawl4ai` (deep crawl BFS/DFS/BestFirst), `crawlers_crawl_scrapling` (Spider framework), `crawlers_map` (URL discovery)
 - Bash: curl, fetch pages, run Python scripts directly
 - WebFetch: fetch URLs for analysis
+
+Record live measurements you actually observed (CWV from google_pagespeed/google_crux, crawl findings from crawlers) with `vault_add_evidence(slug, {specialist_id: "seo-technical", claim, provenance, confidence, source_paths, cost_usd?})` so the evidence ledger backs the audit.
+
+## Audit deliverable format
+
+Every audit you produce for a client follows `skills/audit-report/SKILL.md`: write **one ```audit-data JSON block** (findings with severity, category, effort, evidence, technical detail, fix steps, `plain_english`, `business_impact`, verify) into `audits/<type>-<YYYY-MM>.md` via `vault_write_note` with frontmatter `{type: audit, audit_cycle: YYYY-MM, approval_status: pending}`. Don't hand-write the report or set scores; the orchestrator's `vault_render_audit` scores it and builds the charts and layout. No `owner` field. No traffic, ranking or percentage promises in `plain_english`/`business_impact`. **If a tool call fails, never mention it in findings or summary.** Record it in `data_gaps` (`tool`, `error`, `affected_categories`, `affected_checks`) and tell the orchestrator in your reply.
+
+**Tables first:** in any deliverable you write (keyword reports, briefs, plans, comparisons), present comparable items as markdown tables rather than bullet lists. Audits get their tables from the renderer automatically.
+
+## DataForSEO
+
+Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the client's ledger, saves the full payload to `.seo-brain/<slug>/.raw/dataforseo/<ts>-<tool>-<target>.json`, and returns `raw_path`. Cite that path in `vault_add_evidence(source_paths)` with `provenance: "dataforseo"` and `cost_usd` from the result.
+
+**Reuse first.** Before a paid call, Glob `.seo-brain/<slug>/.raw/dataforseo/*-<tool>-<target>*.json` (tool name without the `dataforseo_` prefix). If a payload under 30 days old exists, Read it instead (monitoring runs excepted). Follow the phase order and artifact contracts in `skills/seo-playbook/SKILL.md`.
+
+**You own** (only you call these):
+- `dataforseo_onpage_instant`: single-page audit with options. Use `enable_javascript` for JS-rendered pages. Use `enable_browser_rendering` only when you suspect LCP/CLS problems and PageSpeed isn't available, because it costs more.
+- `dataforseo_domain_technologies`: CMS/stack detection (e.g. Shopify limits which fixes are possible). Record the platform in the audit.
+- `dataforseo_onpage` (shared): standard page audit (meta, headings, links, images, onpage_score)
+
+**Workflow.**
+- **Phase 0:** onpage for the homepage + key landing pages (from `keywords/keyword-map.md` or Search Console top pages), plus domain_technologies.
+- **Phase 3:** re-run onpage on each changed URL and compare with the earlier payload. Cite both raw_paths as before/after evidence.
+
+**You read:** `keywords/keyword-map.md` for which URLs matter.
+
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

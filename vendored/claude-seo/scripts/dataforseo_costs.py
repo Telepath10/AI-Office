@@ -99,6 +99,9 @@ COST_TABLE = {
     "ai_opt_llm_ment_top_pages": 0.05,
     "ai_opt_llm_ment_agg_metrics": 0.05,
     "ai_opt_llm_ment_cross_agg_metrics": 0.05,
+    # LLM Responses (Live) — $0.0006 + model token cost; cheap-model short prompts ~$0.01
+    "ai_opt_llm_responses_live": 0.01,
+    "ai_opt_llm_models": 0.0,
     # Merchant (e-commerce)
     "merchant_google_products_search": 0.02,
     "merchant_amazon_products_search": 0.02,
@@ -111,6 +114,7 @@ WARN_ENDPOINTS = {
     "backlinks_domain_intersection",
     "ai_optimization_chat_gpt_scraper",
     "ai_opt_llm_ment_search",
+    "ai_opt_llm_responses_live",
     "merchant_amazon_products_search",
 }
 

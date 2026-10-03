@@ -73,20 +73,27 @@ POLL_MAX_ATTEMPTS = 15
 # ---------------------------------------------------------------------------
 
 def _get_credentials() -> tuple[str, str]:
-    """Read DataForSEO credentials from environment variables."""
-    username = os.environ.get("DATAFORSEO_USERNAME", "")
+    """Read DataForSEO credentials from environment variables.
+
+    DATAFORSEO_LOGIN is the MCP/canonical name; DATAFORSEO_USERNAME is an alias.
+    """
+    username = (
+        os.environ.get("DATAFORSEO_LOGIN", "")
+        or os.environ.get("DATAFORSEO_USERNAME", "")
+    )
     password = os.environ.get("DATAFORSEO_PASSWORD", "")
     if not username or not password:
         print(
-            "Error: DATAFORSEO_USERNAME and DATAFORSEO_PASSWORD environment "
-            "variables must be set.",
+            "Error: DATAFORSEO_LOGIN (or DATAFORSEO_USERNAME) and "
+            "DATAFORSEO_PASSWORD environment variables must be set.",
             file=sys.stderr,
         )
         result = {
             "error": "missing_credentials",
             "message": (
-                "DataForSEO credentials not found. Set DATAFORSEO_USERNAME and "
-                "DATAFORSEO_PASSWORD environment variables."
+                "DataForSEO credentials not found. Set DATAFORSEO_LOGIN (or "
+                "DATAFORSEO_USERNAME) and DATAFORSEO_PASSWORD environment "
+                "variables."
             ),
         }
         json.dump(result, sys.stdout, indent=2)

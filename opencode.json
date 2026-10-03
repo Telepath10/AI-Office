@@ -10,7 +10,15 @@
         "task": "allow",
         "bash": "allow",
         "read": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_spend": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny",
+        "social_social_status": "allow"
       }
     },
     "seo-technical": {
@@ -19,16 +27,36 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_onpage_instant": "allow",
+        "dataforseo_dataforseo_domain_technologies": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     },
     "seo-content": {
-      "description": "Content & strategy specialist: E-E-A-T analysis, brand positioning, BEAST planning, FLOW framework, content briefs, topic clustering, programmatic SEO.",
+      "description": "Content & strategy specialist: E-E-A-T analysis, GEO/AI-search visibility, brand positioning, BEAST planning, FLOW framework, content briefs, topic clustering, programmatic SEO.",
       "mode": "subagent",
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_llm_mentions_metrics": "allow",
+        "dataforseo_dataforseo_llm_mentions_search": "allow",
+        "dataforseo_dataforseo_llm_mentions_top_domains": "allow",
+        "dataforseo_dataforseo_llm_mentions_top_pages": "allow",
+        "dataforseo_dataforseo_llm_response": "allow",
+        "dataforseo_dataforseo_content_summary": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "allow"
       }
     },
     "seo-keywords": {
@@ -37,7 +65,25 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_keyword_ideas": "allow",
+        "dataforseo_dataforseo_labs_keyword_suggestions": "allow",
+        "dataforseo_dataforseo_labs_related_keywords": "allow",
+        "dataforseo_dataforseo_labs_keyword_difficulty": "allow",
+        "dataforseo_dataforseo_labs_search_intent": "allow",
+        "dataforseo_dataforseo_google_trends": "allow",
+        "dataforseo_dataforseo_labs_domain_rank_overview": "allow",
+        "dataforseo_dataforseo_labs_ranked_keywords": "allow",
+        "dataforseo_dataforseo_labs_competitors_domain": "allow",
+        "dataforseo_dataforseo_labs_serp_competitors": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny",
+        "social_social_search": "allow",
+        "social_social_trends": "allow"
       }
     },
     "seo-backlinks": {
@@ -46,7 +92,19 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_backlinks": "allow",
+        "dataforseo_dataforseo_backlinks_referring_domains": "allow",
+        "dataforseo_dataforseo_backlinks_anchors": "allow",
+        "dataforseo_dataforseo_backlinks_domain_intersection": "allow",
+        "dataforseo_dataforseo_backlinks_history": "allow",
+        "dataforseo_dataforseo_content_search": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     },
     "seo-schema": {
@@ -55,16 +113,31 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     },
     "seo-local": {
-      "description": "Local & maps specialist: Google Business Profile, NAP consistency, citations, geo-grid rankings, GEO/AI-search readiness, e-commerce SEO.",
+      "description": "Local & maps specialist: Google Business Profile, NAP consistency, business listings, map-pack geo-grid rankings, reviews, e-commerce SEO.",
       "mode": "subagent",
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_serp_maps": "allow",
+        "dataforseo_dataforseo_business_listings": "allow",
+        "dataforseo_dataforseo_google_reviews": "allow",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     },
     "seo-google": {
@@ -73,7 +146,13 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_serp": "allow",
+        "dataforseo_dataforseo_onpage": "allow",
+        "dataforseo_dataforseo_domain_summary": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     },
     "seo-vault": {
@@ -82,14 +161,21 @@
       "permission": {
         "read": "allow",
         "bash": "allow",
-        "edit": "deny"
+        "edit": "deny",
+        "dataforseo_*": "deny",
+        "dataforseo_dataforseo_spend": "allow",
+        "dataforseo_dataforseo_llm_models": "allow",
+        "social_*": "deny"
       }
     }
   },
   "mcp": {
     "vault": {
       "type": "local",
-      "command": ["node", "mcp/vault/dist/index.js"],
+      "command": [
+        "node",
+        "mcp/vault/dist/index.js"
+      ],
       "enabled": true,
       "environment": {
         "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}",
@@ -98,44 +184,77 @@
     },
     "dataforseo": {
       "type": "local",
-      "command": ["node", "mcp/dataforseo/dist/index.js"],
+      "command": [
+        "node",
+        "mcp/dataforseo/dist/index.js"
+      ],
       "enabled": true,
       "environment": {
         "DATAFORSEO_LOGIN": "{env:DATAFORSEO_LOGIN}",
-        "DATAFORSEO_PASSWORD": "{env:DATAFORSEO_PASSWORD}"
+        "DATAFORSEO_PASSWORD": "{env:DATAFORSEO_PASSWORD}",
+        "DATAFORSEO_DEFAULT_LOCATION": "{env:DATAFORSEO_DEFAULT_LOCATION}",
+        "DATAFORSEO_DEFAULT_LANGUAGE": "{env:DATAFORSEO_DEFAULT_LANGUAGE}",
+        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}"
       }
     },
     "google-apis": {
       "type": "local",
-      "command": ["node", "mcp/google-apis/dist/index.js"],
+      "command": [
+        "node",
+        "mcp/google-apis/dist/index.js"
+      ],
       "enabled": true,
       "environment": {
         "GOOGLE_API_KEY": "{env:GOOGLE_API_KEY}",
         "GOOGLE_APPLICATION_CREDENTIALS": "{env:GOOGLE_APPLICATION_CREDENTIALS}"
       }
     },
-    "firecrawl": {
+    "crawlers": {
       "type": "local",
-      "command": ["node", "mcp/firecrawl/dist/index.js"],
+      "command": [
+        "node",
+        "mcp/crawlers/dist/index.js"
+      ],
       "enabled": true,
       "environment": {
         "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}",
-        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}"
+        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}",
+        "CRAWLERS_PYTHON_BIN": "{env:CRAWLERS_PYTHON_BIN}",
+        "CRAWLERS_SCRIPTS_DIR": "{env:CRAWLERS_SCRIPTS_DIR}"
       }
     },
     "python-scripts": {
       "type": "local",
-      "command": ["node", "mcp/python-scripts/dist/index.js"],
+      "command": [
+        "node",
+        "mcp/python-scripts/dist/index.js"
+      ],
       "enabled": true,
       "environment": {
         "PYTHON_SCRIPTS_DIR": "vendored/claude-seo/scripts",
         "PYTHON_BIN": "{env:PYTHON_BIN}",
         "BING_WEBMASTER_API_KEY": "{env:BING_WEBMASTER_API_KEY}"
       }
+    },
+    "social": {
+      "type": "local",
+      "command": [
+        "node",
+        "mcp/social/dist/index.js"
+      ],
+      "enabled": true,
+      "environment": {
+        "SEO_BRAIN_HOME": "{env:SEO_BRAIN_HOME}",
+        "TWITTER_AUTH_TOKEN": "{env:TWITTER_AUTH_TOKEN}",
+        "TWITTER_CT0": "{env:TWITTER_CT0}",
+        "REDDIT_SESSION": "{env:REDDIT_SESSION}"
+      }
     }
   },
   "skills": {
-    "paths": [".opencode/skills"]
+    "paths": [
+      "skills"
+    ]
   },
   "permission": {
     "edit": "allow",

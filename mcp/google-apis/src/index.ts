@@ -19,6 +19,18 @@ function missingAdc(name: string): never {
   );
 }
 
+function getQuotaProject(): string {
+  try {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const { homedir } = require("node:os") as typeof import("node:os");
+    const { join } = require("node:path") as typeof import("node:path");
+    const raw = readFileSync(join(homedir(), ".config/gcloud/application_default_credentials.json"), "utf8");
+    return JSON.parse(raw).quota_project_id ?? "";
+  } catch {
+    return "";
+  }
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -26,6 +38,15 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
     throw new Error(`HTTP ${res.status} from Google API: ${body}`);
   }
   return res.json();
+}
+
+async function adcHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${await getAccessToken()}`,
+  };
+  const quota = getQuotaProject();
+  if (quota) headers["X-Goog-User-Project"] = quota;
+  return headers;
 }
 
 const server = new Server(
@@ -195,7 +216,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${await getAccessToken()}`,
+          ...(await adcHeaders()),
         },
         body: JSON.stringify({
           startDate: start_date,
@@ -221,7 +242,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${await getAccessToken()}`,
+            ...(await adcHeaders()),
           },
           body: JSON.stringify({
             siteUrl: site_url,
@@ -257,7 +278,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${await getAccessToken()}`,
+            ...(await adcHeaders()),
           },
           body: JSON.stringify({
             dateRanges: [{ startDate: start_date, endDate: end_date }],

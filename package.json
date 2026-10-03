@@ -2,7 +2,7 @@
   "name": "seo-slop",
   "version": "0.1.0",
   "private": true,
-  "description": "SEO Slop — opencode agents: orchestrator + 8 subagents + self-contained MCP servers",
+  "description": "SEO Slop — dual-harness SEO agents (opencode + Claude Code): orchestrator + 8 subagents + shared MCP servers",
   "engines": {
     "node": ">=22"
   },
@@ -11,9 +11,12 @@
     "build:vault": "pnpm --filter @seo-slop/vault-mcp build",
     "build:dataforseo": "pnpm --filter @seo-slop/dataforseo-mcp build",
     "build:google": "pnpm --filter @seo-slop/google-apis-mcp build",
-    "build:firecrawl": "pnpm --filter @seo-slop/firecrawl-mcp build",
+    "build:crawlers": "pnpm --filter @seo-slop/crawlers-mcp build",
     "build:python": "pnpm --filter @seo-slop/python-scripts-mcp build",
+    "build:social": "pnpm --filter @seo-slop/social-mcp build",
     "health": "bash scripts/bootup-healthcheck.sh",
-    "health:live": "bash scripts/bootup-healthcheck.sh --live"
+    "health:live": "bash scripts/bootup-healthcheck.sh --live",
+    "health:claude": "bash start-claude.sh --health",
+    "health:opencode": "bash start.sh --health"
   }
 }

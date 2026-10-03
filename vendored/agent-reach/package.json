@@ -1,0 +1,7 @@
+{
+  "name": "seo-slop-agent-reach-node",
+  "private": true,
+  "dependencies": {
+    "@jackwener/opencli": "1.8.8"
+  }
+}

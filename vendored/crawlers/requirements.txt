@@ -1,0 +1,4 @@
+crawl4ai>=0.4.0
+scrapling[fetchers]>=0.3.0
+beautifulsoup4
+lxml

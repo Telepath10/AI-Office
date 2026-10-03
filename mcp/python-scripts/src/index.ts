@@ -144,7 +144,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   if (scriptExists("moz_api.py")) {
     scripts.push({
       name: "python_moz_backlinks",
-      description: "Get Moz API backlink data",
+      description:
+        "Get Moz API backlink data (optional/skipped — DataForSEO backlinks are primary)",
       inputSchema: {
         type: "object",
         properties: {
@@ -154,11 +155,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           access_id: {
             type: "string",
-            description: "Moz API access ID (or set MOZ_ACCESS_ID env var)",
+            description:
+              "Moz API access ID (or set MOZ_API_KEY / MOZ_ACCESS_ID env var)",
           },
           secret_key: {
             type: "string",
-            description: "Moz API secret key (or set MOZ_SECRET_KEY env var)",
+            description:
+              "Moz API secret key (or set MOZ_SECRET_KEY env var)",
           },
         },
         required: ["domain"],
@@ -169,7 +172,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   if (scriptExists("bing_webmaster.py")) {
     scripts.push({
       name: "python_bing_webmaster",
-      description: "Get Bing Webmaster data",
+      description: "Get Bing Webmaster data (backlinks / site health)",
       inputSchema: {
         type: "object",
         properties: {
@@ -179,7 +182,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           api_key: {
             type: "string",
-            description: "Bing API key (or set BING_API_KEY env var)",
+            description:
+              "Bing Webmaster API key (or set BING_WEBMASTER_API_KEY env var; BING_API_KEY is accepted as alias)",
           },
         },
         required: ["domain"],

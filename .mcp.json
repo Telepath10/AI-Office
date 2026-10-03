@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "vault": {
+      "command": "node",
+      "args": [
+        "mcp/vault/dist/index.js"
+      ]
+    },
+    "dataforseo": {
+      "command": "node",
+      "args": [
+        "mcp/dataforseo/dist/index.js"
+      ]
+    },
+    "google-apis": {
+      "command": "node",
+      "args": [
+        "mcp/google-apis/dist/index.js"
+      ]
+    },
+    "crawlers": {
+      "command": "node",
+      "args": [
+        "mcp/crawlers/dist/index.js"
+      ]
+    },
+    "python-scripts": {
+      "command": "node",
+      "args": [
+        "mcp/python-scripts/dist/index.js"
+      ]
+    },
+    "social": {
+      "command": "node",
+      "args": [
+        "mcp/social/dist/index.js"
+      ]
+    }
+  }
+}

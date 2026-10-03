@@ -1,0 +1,6 @@
+# Social/news access via agent-reach (MIT). Isolated venv: vendored/agent-reach/.venv
+#   python3 -m venv vendored/agent-reach/.venv && vendored/agent-reach/.venv/bin/pip install -r vendored/agent-reach/requirements.txt
+#   OpenCLI (Instagram/Facebook): npm install --prefix vendored/agent-reach @jackwener/opencli@1.8.8
+agent-reach @ https://github.com/Panniantong/agent-reach/archive/refs/tags/v1.5.0.zip
+twitter-cli==0.8.5
+rdt-cli==0.4.1

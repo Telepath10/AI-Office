@@ -1,5 +1,5 @@
 {
-  "name": "@seo-slop/firecrawl-mcp",
+  "name": "@seo-slop/crawlers-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
