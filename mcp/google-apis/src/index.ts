@@ -1,4 +1,4 @@
-import "./env.js"; // must stay first: repo-root cwd + .env loading
+import "@seo-slop/shared/env"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -9,11 +9,11 @@ import { createSign } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fitResponse, redact, tail } from "./util.js";
+import { fitResponse, redact, tail } from "@seo-slop/shared/util";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY ?? "";
 const GOOGLE_TIMEOUT_MS = parseInt(process.env.GOOGLE_TIMEOUT_MS || "60000", 10);
-const GCLOUD_TIMEOUT_MS = 30_000;
+const GCLOUD_TIMEOUT_MS = parseInt(process.env.GCLOUD_TIMEOUT_MS || "30000", 10);
 
 const CLIENT_SLUG = {
   type: "string",
@@ -24,6 +24,91 @@ const CLIENT_SLUG = {
 // Valid GA4 Data API metrics; "organic" comes from the channel-group filter.
 const DEFAULT_GA4_METRICS = "sessions,totalUsers,keyEvents";
 const DEFAULT_GA4_CHANNEL = "Organic Search";
+
+const GSC_DIMENSIONS = ["query", "page", "country", "device", "date", "searchAppearance"] as const;
+
+// CrUX Core Web Vitals thresholds (ported from vendored/claude-seo/scripts/crux_history.py).
+const CWV_THRESHOLDS: Record<string, { good: number; poor: number; label: string; unit: string }> = {
+  largest_contentful_paint: { good: 2500, poor: 4000, label: "LCP", unit: "ms" },
+  interaction_to_next_paint: { good: 200, poor: 500, label: "INP", unit: "ms" },
+  cumulative_layout_shift: { good: 0.1, poor: 0.25, label: "CLS", unit: "" },
+  first_contentful_paint: { good: 1800, poor: 3000, label: "FCP", unit: "ms" },
+  experimental_time_to_first_byte: { good: 800, poor: 1800, label: "TTFB", unit: "ms" },
+};
+
+/** {origin} for a bare origin (no path beyond "/" and no query), else {url}. */
+function cruxTarget(input: string): { url: string } | { origin: string } {
+  try {
+    const u = new URL(input);
+    if ((u.pathname === "" || u.pathname === "/") && !u.search) return { origin: `${u.protocol}//${u.host}` };
+  } catch {
+    // not a parseable URL: let the API validate it
+  }
+  return { url: input };
+}
+
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || String(v) === "NaN") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pct(v: unknown): number | null {
+  const n = num(v);
+  return n === null ? null : Math.round(n * 1000) / 10;
+}
+
+function ymd(d: any): string {
+  const pad = (n: unknown) => String(Number(n) || 0).padStart(2, "0");
+  return `${d?.year}-${pad(d?.month)}-${pad(d?.day)}`;
+}
+
+/** Summarize a queryHistoryRecord response: per-metric p75 series, histogram shares, and a first-4 vs last-4 trend. */
+function summarizeCruxHistory(data: any) {
+  const record = data?.record ?? {};
+  const collection_periods = (record.collectionPeriods ?? []).map((p: any) => ({
+    first: ymd(p?.firstDate),
+    last: ymd(p?.lastDate),
+  }));
+  const metrics: Record<string, unknown> = {};
+  const trends: Record<string, unknown> = {};
+  for (const [metric, m] of Object.entries<any>(record.metrics ?? {})) {
+    const t = CWV_THRESHOLDS[metric];
+    const p75s: Array<number | null> = (m?.percentilesTimeseries?.p75s ?? []).map(num);
+    const hist: any[] = m?.histogramTimeseries ?? [];
+    const bin = (i: number) => (hist.length >= 3 ? (hist[i]?.densities ?? []).map(pct) : []);
+    metrics[metric] = {
+      label: t?.label ?? metric,
+      unit: t?.unit ?? "",
+      p75_values: p75s,
+      good_percentages: bin(0),
+      needs_improvement_percentages: bin(1),
+      poor_percentages: bin(2),
+      latest_p75: p75s.length ? p75s[p75s.length - 1] : null,
+      ...(t ? { good_threshold: t.good, poor_threshold: t.poor } : {}),
+    };
+    if (!t) continue;
+    const valid = p75s.filter((v): v is number => v !== null);
+    if (valid.length < 8) {
+      trends[metric] = { direction: "insufficient_data", label: t.label, data_points: valid.length };
+      continue;
+    }
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    const first = avg(valid.slice(0, 4));
+    const last = avg(valid.slice(-4));
+    const change = first === 0 ? 0 : ((last - first) / first) * 100;
+    const r = (v: number) => (t.unit === "" ? Math.round(v * 1000) / 1000 : Math.round(v));
+    trends[metric] = {
+      direction: Math.abs(change) < 5 ? "stable" : change < 0 ? "improving" : "degrading",
+      change_pct: Math.round(change * 10) / 10,
+      earliest_avg: r(first),
+      latest_avg: r(last),
+      label: t.label,
+      data_points: valid.length,
+    };
+  }
+  return { collection_periods, metrics, trends };
+}
 
 function expandHome(p: string): string {
   return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
@@ -126,15 +211,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "google_crux",
-      description: "Get CrUX (Chrome UX Report) data for a URL or origin",
+      description:
+        "Get CrUX (Chrome UX Report) field data for a URL or origin: current 28-day data (default) or 25-week history (history:true) with per-metric p75 series, good/NI/poor shares, collection period dates and a trend (first 4 vs last 4 weeks). A bare origin (no path) is queried as an origin.",
       inputSchema: {
         type: "object",
         properties: {
-          url: { type: "string", description: "URL or origin to query" },
+          url: { type: "string", description: "URL or origin to query (a bare origin like https://example.com is sent as origin)" },
           formFactor: {
             type: "string",
             enum: ["PHONE", "DESKTOP", "TABLET"],
             description: "Optional form factor filter",
+          },
+          history: {
+            type: "boolean",
+            default: false,
+            description: "true = 25 weekly collection periods via records:queryHistoryRecord; false = current record",
           },
           client_slug: CLIENT_SLUG,
         },
@@ -143,7 +234,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "google_search_console_queries",
-      description: "Get top Search Console queries for a site",
+      description:
+        "Search Console search analytics for a site. Group by any of query, page, country, device, date, searchAppearance (default [\"query\"]); paginate with row_limit/start_row. Rows come back with the dimension values keyed by dimension name plus clicks, impressions, ctr, position.",
       inputSchema: {
         type: "object",
         properties: {
@@ -159,10 +251,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             description: "End date in YYYY-MM-DD format",
           },
+          dimensions: {
+            type: "array",
+            items: { type: "string", enum: [...GSC_DIMENSIONS] },
+            default: ["query"],
+            description: "Dimensions to group by, in order (e.g. [\"page\"], [\"query\",\"page\"], [\"date\"])",
+          },
+          row_limit: {
+            type: "number",
+            description: "Max rows to return (1-25000). Defaults to limit, else 20",
+          },
+          start_row: {
+            type: "number",
+            default: 0,
+            description: "Zero-based row offset for pagination",
+          },
           limit: {
             type: "number",
             default: 20,
-            description: "Max results to return",
+            description: "Deprecated alias for row_limit (kept for back-compat)",
           },
           client_slug: CLIENT_SLUG,
         },
@@ -190,7 +297,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "google_ga4_report",
-      description: "Get GA4 report data for a property",
+      description:
+        "GA4 Data API report for a property. Without dimensions: totals for the date range (organic by default). With dimensions (e.g. landingPage,sessionSource,date): a breakdown, sortable by order_by (metric, descending) and capped by limit; flattened rows are added under rows.",
       inputSchema: {
         type: "object",
         properties: {
@@ -215,6 +323,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             default: DEFAULT_GA4_CHANNEL,
             description: "Filter by sessionDefaultChannelGroup (default \"Organic Search\"). Pass \"all\" for no filter.",
+          },
+          dimensions: {
+            type: "string",
+            description: "Optional comma-separated GA4 dimension names (e.g. landingPage, sessionSource, sessionMedium, date, deviceCategory, country). Omit for totals only.",
+          },
+          order_by: {
+            type: "string",
+            description: "Optional metric name to sort by, descending (must be one of metrics)",
+          },
+          limit: {
+            type: "number",
+            description: "Optional max rows to return",
           },
           client_slug: CLIENT_SLUG,
         },
@@ -241,31 +361,64 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "google_crux": {
       if (!GOOGLE_API_KEY) missingApiKey("google_crux");
-      const { url, formFactor } = args as {
+      const { url, formFactor, history = false } = args as {
         url: string;
         formFactor?: string;
+        history?: boolean;
       };
-      const body: Record<string, unknown> = { url };
+      const target = cruxTarget(url);
+      const body: Record<string, unknown> = { ...target };
       if (formFactor) body.formFactor = formFactor;
-      const data = await fetchJson(
-        `https://chromeuxreport.googleapis.com/v1/records:queryRecord?key=${GOOGLE_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+      const endpoint = history ? "queryHistoryRecord" : "queryRecord";
+      let data: unknown;
+      try {
+        data = await fetchJson(
+          `https://chromeuxreport.googleapis.com/v1/records:${endpoint}?key=${GOOGLE_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.startsWith("HTTP 404")) {
+          const kind = "origin" in target ? "origin" : "URL";
+          throw new Error(`No CrUX ${history ? "history " : ""}data for this ${kind}: not enough Chrome traffic to be eligible. Try the origin instead of a page URL.`);
         }
-      );
-      return await respond(name, args, data);
+        if (msg.startsWith("HTTP 429")) {
+          throw new Error("CrUX API rate limit exceeded (150 queries/min shared). Wait and retry.");
+        }
+        throw err;
+      }
+      if (!history) return await respond(name, args, data);
+      return await respond(name, args, {
+        target: "origin" in target ? target.origin : target.url,
+        target_type: "origin" in target ? "origin" : "url",
+        form_factor: formFactor ?? "ALL",
+        ...summarizeCruxHistory(data),
+        raw: data,
+      });
     }
 
     case "google_search_console_queries": {
       if (!GOOGLE_ADC) missingAdc("google_search_console_queries");
-      const { site_url, start_date, end_date, limit = 20 } = args as {
+      const { site_url, start_date, end_date, limit, row_limit, start_row = 0, dimensions } = args as {
         site_url: string;
         start_date: string;
         end_date: string;
         limit?: number;
+        row_limit?: number;
+        start_row?: number;
+        dimensions?: string[];
       };
+      const dims = Array.isArray(dimensions) && dimensions.length ? dimensions : ["query"];
+      const bad = dims.filter((d) => !(GSC_DIMENSIONS as readonly string[]).includes(d));
+      if (bad.length) {
+        throw new Error(`Invalid dimensions ${JSON.stringify(bad)}; allowed: ${GSC_DIMENSIONS.join(", ")}`);
+      }
+      const rowLimit = Math.min(Math.max(1, Math.floor(Number(row_limit ?? limit ?? 20)) || 20), 25000);
+      const startRow = Math.max(0, Math.floor(Number(start_row)) || 0);
       const encodedSite = encodeURIComponent(site_url);
       const apiUrl = `https://www.googleapis.com/webmasters/v3/sites/${encodedSite}/searchAnalytics/query`;
       const data = await fetchJson(apiUrl, {
@@ -277,11 +430,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         body: JSON.stringify({
           startDate: start_date,
           endDate: end_date,
-          dimensions: ["query"],
-          rowLimit: limit,
+          dimensions: dims,
+          rowLimit: rowLimit,
+          startRow: startRow,
         }),
+      }) as { rows?: Array<{ keys?: string[] } & Record<string, unknown>>; responseAggregationType?: string };
+      const rows = (data.rows ?? []).map(({ keys, ...metrics }) => ({
+        ...Object.fromEntries(dims.map((d, i) => [d, keys?.[i] ?? null])),
+        ...metrics,
+      }));
+      return await respond(name, args, {
+        dimensions: dims,
+        start_row: startRow,
+        row_limit: rowLimit,
+        row_count: rows.length,
+        next_start_row: rows.length === rowLimit ? startRow + rowLimit : null,
+        responseAggregationType: data.responseAggregationType,
+        rows,
       });
-      return await respond(name, args, data);
     }
 
     case "google_search_console_inspect": {
@@ -315,12 +481,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         end_date,
         metrics = DEFAULT_GA4_METRICS,
         channel_group = DEFAULT_GA4_CHANNEL,
+        dimensions,
+        order_by,
+        limit,
       } = args as {
         property_id: string;
         start_date: string;
         end_date: string;
         metrics?: string;
         channel_group?: string;
+        dimensions?: string;
+        order_by?: string;
+        limit?: number;
       };
       const channel = channel_group.trim();
       const dimensionFilter =
@@ -335,7 +507,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const propId = property_id.startsWith("properties/")
         ? property_id
         : `properties/${property_id}`;
-      const metricList = metrics.split(",").map((m) => ({ name: m.trim() }));
+      const metricList = metrics.split(",").map((m) => m.trim()).filter(Boolean).map((m) => ({ name: m }));
+      const dimList = (dimensions ?? "").split(",").map((d) => d.trim()).filter(Boolean).map((d) => ({ name: d }));
+      const orderBy = order_by?.trim();
+      if (orderBy && !metricList.some((m) => m.name === orderBy)) {
+        throw new Error(`order_by "${orderBy}" must be one of the requested metrics (${metricList.map((m) => m.name).join(", ")})`);
+      }
+      const rowLimit = typeof limit === "number" && limit > 0 ? Math.floor(limit) : undefined;
       const data = await fetchJson(
         `https://analyticsdata.googleapis.com/v1beta/${propId}:runReport`,
         {
@@ -347,11 +525,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           body: JSON.stringify({
             dateRanges: [{ startDate: start_date, endDate: end_date }],
             metrics: metricList,
+            ...(dimList.length ? { dimensions: dimList } : {}),
             ...(dimensionFilter ? { dimensionFilter } : {}),
+            ...(orderBy ? { orderBys: [{ metric: { metricName: orderBy }, desc: true }] } : {}),
+            ...(rowLimit ? { limit: rowLimit } : {}),
           }),
         }
       );
-      return await respond(name, args, data);
+      if (!dimList.length) return await respond(name, args, data);
+      const report = data as {
+        rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }>;
+        dimensionHeaders?: Array<{ name: string }>;
+        metricHeaders?: Array<{ name: string }>;
+      };
+      const dNames = (report.dimensionHeaders ?? dimList).map((h) => h.name);
+      const mNames = (report.metricHeaders ?? metricList).map((h) => h.name);
+      const rows = (report.rows ?? []).map((r) => ({
+        ...Object.fromEntries(dNames.map((d, i) => [d, r.dimensionValues?.[i]?.value ?? null])),
+        ...Object.fromEntries(mNames.map((m, i) => [m, num(r.metricValues?.[i]?.value)])),
+      }));
+      return await respond(name, args, { rows, raw: data });
     }
 
     default:

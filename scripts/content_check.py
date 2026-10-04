@@ -101,13 +101,25 @@ def fk_grade(text):
     return 0.39 * (len(ws) / len(sents)) + 11.8 * (syl / len(ws)) - 15.59
 
 
+FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+
 def parse_sections(body):
-    """Return (h1s, sections) where sections = [{level, heading, text}] and preamble text before first H2."""
+    """Return (h1s, sections) where sections = [{level, heading, text}] and preamble text before first H2.
+    Lines inside ``` / ~~~ code fences are never treated as headings."""
     lines = body.splitlines()
     h1s, sections, pre = [], [], []
     cur = None
+    fence = None  # opening fence marker while inside a code block
     for line in lines:
-        m = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", line)
+        fm_ = FENCE_RE.match(line)
+        if fm_:
+            mark = fm_.group(1)
+            if fence is None:
+                fence = mark
+            elif mark[0] == fence[0] and len(mark) >= len(fence) and not line.strip()[len(mark):].strip():
+                fence = None
+        m = None if fence is not None or fm_ else re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", line)
         if m:
             level, heading = len(m.group(1)), m.group(2).strip()
             if level == 1:
@@ -131,13 +143,29 @@ def first_paragraph(text):
     return ""
 
 
+def as_list(v):
+    """Brief list fields may arrive as a YAML list, a comma/newline-separated string, or nothing."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [p.strip() for p in re.split(r"[,\n]", v) if p.strip()]
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    return [v]
+
+
+def figure_sourced(n, evidence):
+    """Whole-number match: "10" must not match inside "100" or "1.05"."""
+    return re.search(rf"(?<![\d.]){re.escape(n)}(?![\d]|\.\d)", evidence) is not None
+
+
 def main():
     req = json.load(sys.stdin)
     fm = req.get("frontmatter") or {}
     body = req.get("body") or ""
     signals = [x for x in (fm.get("social_signals") or []) if isinstance(x, dict) and x.get("url")]
     signal_text = [" ".join(str(x.get(k, "")) for k in ("title", "why_relevant", "snippet", "stat")) for x in signals]
-    evidence = " ".join(list(req.get("evidence") or []) + [str(x) for x in (fm.get("facts") or [])] + signal_text).lower()
+    evidence = " ".join(list(req.get("evidence") or []) + [str(x) for x in as_list(fm.get("facts"))] + signal_text).lower()
     R = []
 
     def add(group, check, ok, detail="", level_fail="fail"):
@@ -155,8 +183,8 @@ def main():
     total = len(all_words)
 
     kw = (fm.get("primary_keyword") or "").strip()
-    secondary = [s for s in (fm.get("secondary_keywords") or []) if str(s).strip()]
-    links = [str(s).strip() for s in (fm.get("internal_links") or []) if str(s).strip()]
+    secondary = [s for s in as_list(fm.get("secondary_keywords")) if str(s).strip()]
+    links = [str(s).strip() for s in as_list(fm.get("internal_links")) if str(s).strip()]
     title = str(fm.get("seo_title") or fm.get("title") or (h1s[0] if h1s else "")).strip().strip('"')
     slug = str(fm.get("slug") or "").strip()
 
@@ -238,7 +266,7 @@ def main():
     for fmatch in FIGURE_RE.finditer(prose):
         f = fmatch.group(0).strip()
         num = re.findall(r"\d[\d,.]*", f)
-        if num and any(n.rstrip(".,") in evidence for n in num):
+        if num and any(figure_sourced(n.rstrip(".,"), evidence) for n in num):
             continue
         if f.lower() in evidence:
             continue

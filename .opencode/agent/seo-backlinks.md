@@ -44,7 +44,7 @@ When using free sources (CommonCrawl, Bing, Moz free tier), note the data source
 ## Tools
 
 - `python-scripts` MCP: python_commoncrawl_backlinks, python_bing_webmaster, python_moz_backlinks
-- `vault` MCP: read/write reports, add_evidence/query_evidence
+- `vault` MCP: read/write reports, vault_add_evidence/vault_query_evidence
 - Bash, WebFetch: direct API calls and research
 
 Record backlink claims with `vault_add_evidence(slug, {specialist_id: "seo-backlinks", claim, provenance: "dataforseo" | "commoncrawl" | "bing" | "moz", confidence, source_paths, cost_usd?})`. Confidence mirrors the data-quality note above: `medium` for mixed-source, `low` for free-only.
@@ -77,4 +77,4 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **You read:** `entities/competitors.md` (don't invent competitors); seo-local's `business_listings` payloads for citation sources.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

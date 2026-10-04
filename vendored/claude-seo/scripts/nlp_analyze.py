@@ -29,17 +29,51 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from google_auth import get_api_key, validate_url
 
+# v2 annotateText: document sentiment, classification, moderation.
 NLP_ENDPOINT = "https://language.googleapis.com/v2/documents:annotateText"
+# v1 analyzeEntitySentiment: entities WITH salience, Wikipedia/MID metadata and
+# per-entity sentiment. v2 dropped salience and metadata, so entities use v1.
+NLP_ENTITY_ENDPOINT = "https://language.googleapis.com/v1/documents:analyzeEntitySentiment"
 
 # Free tier: 5,000 units/month per feature
 # Paid: $0.001 per 1,000-character unit for entity/sentiment
 FEATURES = {
-    "entities": "extractEntities",
     "sentiment": "extractDocumentSentiment",
     "classify": "classifyText",
     "categories": "classifyText",
     "moderate": "moderateText",
 }
+
+
+def _api_error(resp) -> str:
+    """Turn a Google API error response into a readable message with the real reason."""
+    reason, message = "", ""
+    try:
+        err = resp.json().get("error", {})
+        message = err.get("message", "")
+        for d in err.get("details", []):
+            if d.get("reason"):
+                reason = d["reason"]
+                break
+        reason = reason or err.get("status", "")
+    except ValueError:
+        message = resp.text[:300]
+    hints = {
+        "BILLING_DISABLED": "Link a billing account to the API key's project.",
+        "SERVICE_DISABLED": "Enable the Cloud Natural Language API on the API key's project.",
+        "API_KEY_SERVICE_BLOCKED": "Add Cloud Natural Language API to the key's API restrictions.",
+        "API_KEY_INVALID": "Check GOOGLE_API_KEY.",
+        "RATE_LIMIT_EXCEEDED": "Quota exceeded (free tier: 5,000 units/month per feature).",
+    }
+    hint = hints.get(reason, "")
+    out = f"NLP API error {resp.status_code}"
+    if reason:
+        out += f" [{reason}]"
+    if message:
+        out += f": {message}"
+    if hint:
+        out += f" Fix: {hint}"
+    return out
 
 
 def analyze_text(
@@ -78,44 +112,42 @@ def analyze_text(
     if features is None:
         features = ["entities", "sentiment", "classify"]
 
-    # Build request
+    doc_v2 = {"type": "PLAIN_TEXT", "content": text[:100000], "languageCode": language}
+    data = {}
+
+    # v2 annotateText for sentiment / classification / moderation
     feature_map = {}
     for f in features:
         api_feature = FEATURES.get(f)
         if api_feature:
             feature_map[api_feature] = True
 
-    body = {
-        "document": {
-            "type": "PLAIN_TEXT",
-            "content": text[:100000],  # API limit
-            "languageCode": language,
-        },
-        "features": feature_map,
-        "encodingType": "UTF8",
-    }
-
     try:
-        resp = requests.post(
-            f"{NLP_ENDPOINT}?key={key}",
-            json=body,
-            timeout=30,
-        )
-
-        if resp.status_code == 403:
-            result["error"] = (
-                "Cloud Natural Language API access denied. Enable it in "
-                "GCP Console: APIs & Services > Library > Cloud Natural Language API. "
-                "Billing must be enabled on the project."
+        if feature_map:
+            resp = requests.post(
+                f"{NLP_ENDPOINT}?key={key}",
+                json={"document": doc_v2, "features": feature_map, "encodingType": "UTF8"},
+                timeout=30,
             )
-            return result
+            if resp.status_code >= 400:
+                result["error"] = _api_error(resp)
+                return result
+            data.update(resp.json())
 
-        if resp.status_code == 429:
-            result["error"] = "NLP API quota exceeded. Free tier: 5,000 units/month."
-            return result
-
-        resp.raise_for_status()
-        data = resp.json()
+        # v1 analyzeEntitySentiment for entities (salience + metadata + entity sentiment)
+        if "entities" in features:
+            resp = requests.post(
+                f"{NLP_ENTITY_ENDPOINT}?key={key}",
+                json={
+                    "document": {"type": "PLAIN_TEXT", "content": text[:100000], "language": language},
+                    "encodingType": "UTF8",
+                },
+                timeout=30,
+            )
+            if resp.status_code >= 400:
+                result["error"] = _api_error(resp)
+                return result
+            data["entities"] = resp.json().get("entities", [])
     except requests.exceptions.RequestException as e:
         result["error"] = f"NLP API request failed: {e}"
         return result
@@ -153,7 +185,7 @@ def analyze_text(
             "magnitude": round(magnitude, 3),
             "tone": tone,
             "interpretation": (
-                f"{'Positive' if score > 0 else 'Negative' if score < 0 else 'Neutral'} "
+                f"{'Positive' if score >= 0.1 else 'Negative' if score <= -0.1 else 'Neutral'} "
                 f"(score: {score:.2f}) with "
                 f"{'high' if magnitude > 2 else 'moderate' if magnitude > 0.5 else 'low'} "
                 f"emotional content (magnitude: {magnitude:.2f})"

@@ -23,13 +23,15 @@ Each client moves through five phases. Every phase has one owner per tool, write
 | seo-keywords | `keyword_ideas`, `labs_keyword_suggestions`, `labs_related_keywords`, `labs_keyword_difficulty`, `labs_search_intent`, `google_trends`, `labs_domain_rank_overview`, `labs_ranked_keywords`, `labs_competitors_domain`, `labs_serp_competitors` |
 | seo-backlinks | `backlinks`, `backlinks_referring_domains`, `backlinks_anchors`, `backlinks_domain_intersection`, `backlinks_history`, `content_search` |
 | seo-content | `llm_mentions_metrics`, `llm_mentions_search`, `llm_mentions_top_domains`, `llm_mentions_top_pages`, `llm_response`, `content_summary` |
-| seo-technical | `onpage_instant`, `domain_technologies` |
+| seo-technical | `domain_technologies` |
 | seo-local | `serp_maps`, `business_listings`, `google_reviews` |
 | orchestrator, seo-vault | `spend` |
 | seo-content (social MCP, free) | `social_trends`, `social_search`, `social_read` (seo-keywords may use trends/search; orchestrator runs `social_status`) |
-| **Shared (anyone)** | `serp`, `onpage`, `domain_summary`, `llm_models` |
+| **Shared (anyone)** | `serp`, `onpage_instant`, `domain_summary`, `llm_models` |
 
-seo-keywords is still the default caller of `serp` for keyword targets. Other agents check `.raw` first.
+seo-keywords is still the default caller of `serp` for keyword targets, and seo-technical of `onpage_instant`. Other agents check `.raw` first.
+
+**Crawling and scraping:** best tool first, free tools only as fallback. Follow the crawler routing table in the `seo-technical` and `seo-slop` prompts (Firecrawl first for pages, maps and crawls; Scrapling stealth for bot-protected pages; Crawl4AI only as a fallback).
 
 ## Shared artifacts (contracts)
 
@@ -53,7 +55,7 @@ All audit output follows `skills/audit-report/SKILL.md` (`audit-data` → `rende
 
 - **keywords:** `labs_domain_rank_overview` (client), `labs_ranked_keywords` (client, limit 200), `labs_competitors_domain` → `visibility-baseline.md`, `entities/competitors.md`
 - **backlinks:** `domain_summary` (client + competitors), `backlinks_history` (12 months), `backlinks_referring_domains`, `backlinks_anchors` → `backlinks/baseline.md`
-- **technical:** `onpage` (homepage + key landing pages), `domain_technologies` → platform limits noted in the audit
+- **technical:** `onpage_instant` (homepage + key landing pages), `domain_technologies` → platform limits noted in the audit
 - **local** (local businesses only): `business_listings`, `google_reviews` (client + top 3 local competitors)
 - **content:** `llm_mentions_metrics` (client + 2–3 competitors, `platform: google`) → `audits/geo-baseline.md`
 - **Exit:** user confirms the competitor list; ≥4 live evidence claims.
@@ -66,11 +68,11 @@ All audit output follows `skills/audit-report/SKILL.md` (`audit-data` → `rende
 - **Exit:** every priority keyword maps to exactly one URL.
 
 ### 2. Plan
-- **content:** briefs from `keyword-map.md` and the saved `serp` payloads (don't re-call). `llm_response` (web_search on) for 2–3 target questions per brief to see the current AI answer. `content_summary` for brand-authority signals. BEAST 30/60/90 roadmap.
+- **content:** briefs from `keyword-map.md` and the saved `serp` payloads (don't re-call). `llm_response` (web_search on) for 2–3 target questions per brief to see the current AI answer. `content_summary` for brand-authority signals. BEAST 30/60/90 roadmap, using the business-type overlay in `references/business-types/` (`saas`, `local-seo-services`, `ecommerce`, `publisher-news`, `lead-gen-b2b`, `affiliate-content`) that matches the client.
 - **Exit:** every brief cites the raw_paths it used.
 
 ### 3. Fix
-- **technical:** re-run `onpage` / `onpage_instant` on changed URLs and compare against the earlier raw payload. **schema** reads that payload plus its own crawl.
+- **technical:** re-run `onpage_instant` on changed URLs and compare against the earlier raw payload. **schema** reads that payload plus its own crawl.
 - **Exit:** the re-check confirms each fix.
 
 ### 4. Monitor (monthly, fresh data)
@@ -95,3 +97,22 @@ There is no budget cap. Instead the user sees spend after every run:
 ## Client weighting
 - **Local service business** (e.g. afdindia, a coaching centre in Kochi): phases 0–1 weighted towards local. Geo-grid around the business address for course and service keywords; reviews compared with local competitors; `google_trends` for exam or seasonal windows; GEO questions phrased the way locals ask ("best NATA coaching in Kerala").
 - **National e-commerce** (e.g. nailaara, Shopify D2C): weighted towards keywords and Labs. Skip `serp_maps` and `google_reviews`. Use `content_search` for influencer/blog mentions and `domain_technologies` to confirm platform limits on technical fixes.
+
+## SEO principles
+
+**Thinking framework (10 principles, 4 phases).** Walk every analysis through these:
+
+| Phase | Principles |
+|---|---|
+| Perceive | 1. Observe externally (SERP, competitors, community)<br>2. Observe internally (GSC, GA4, crawls)<br>3. Listen (reviews, support, social pain points) |
+| Analyze | 4. Think from first principles (why does X cause Y?)<br>5. Connect laterally (e.g. schema drift affects AI citability)<br>6. Connect the system (what blocks what) |
+| Validate | 7. Feel (UX, brand voice, operator capacity)<br>8. Accept falsifiability ("how would we know this failed?") |
+| Act | 9. Create the artifact<br>10. Grow: set the feedback loop for the next cycle |
+
+**AI search (Google, May 2026).**
+- "AEO" and "GEO" are labels for SEO. AI Overviews and AI Mode use the same ranking systems as classic Search.
+- A page must be indexed and eligible for a snippet to appear in any AI feature.
+- `llms.txt` is not a citation lever. Optimise page content, not metadata files.
+- Content doesn't need chunking for AI, and AI-specific keyword rewrites are unnecessary (synonyms are understood).
+
+**Quality Rater Guidelines (September 2025).** Trustworthiness weighs most in E-E-A-T. YMYL now includes political and social topics. Apply the "Who / How / Why" check before scoring.

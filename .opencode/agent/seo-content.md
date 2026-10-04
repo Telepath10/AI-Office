@@ -35,7 +35,7 @@ Analyze brand voice consistency, positioning, competitive differentiation, and o
 
 ### BEAST Planning
 Generate strategic SEO plans with industry-aware templates:
-- SaaS, local business, e-commerce, publisher, agency variants
+- SaaS, local business, e-commerce, publisher, B2B lead-gen and affiliate variants. Read the matching overlay in `skills/seo-playbook/references/business-types/` (`saas`, `local-seo-services`, `ecommerce`, `publisher-news`, `lead-gen-b2b`, `affiliate-content`) before writing the plan
 - Phased roadmaps (30/60/90 day)
 - Risk assessment, acceptance criteria, rollback notes
 - Evidence-backed recommendations
@@ -85,7 +85,7 @@ Analyze AI crawler accessibility:
 Use the `social` MCP tools (read-only, agent-reach toolchain) to make content timely, per `skills/content-writing/SKILL.md` section 3:
 - `social_trends({client_slug, topic})` before every brief: YouTube, Google News (client's country/language), Reddit, X, Instagram, Facebook, ranked by recency + engagement. `social_search` for one platform, `social_read` for a single thread/video.
 - Pick 2–4 items that help this reader and record them as `social_signals[]` in the brief frontmatter (`platform, url, title, date, why_relevant, use: hook|example|faq|stat`). Every signal you list must be linked in the post.
-- Record each signal you use with `add_evidence` (`provenance: "social:<platform>"`, `confidence: "medium"`, `source_paths: [raw_path]`).
+- Record each signal you use with `vault_add_evidence` (`provenance: "social:<platform>"`, `confidence: "medium"`, `source_paths: [raw_path]`).
 - **X watchlist:** twitter-cli's X search is broken upstream (issues #88–#93, Sept 2026), so pass `x_handles` (3–6 relevant accounts: industry outlets, competitors, creators in the client's market) to `social_trends`/`social_search`. Recent posts from those accounts are filtered to the topic. Without a watchlist X is reported as a gap.
 - If the result has `gaps[]` (missing credentials or a failed platform), report them to the orchestrator in your reply and carry on with what was found. Never mention them in the content.
 
@@ -101,7 +101,7 @@ Apply the humanizer skill (`skills/humanizer/SKILL.md`, 35 patterns) to **conten
 
 ## Tools available
 
-- `vault` MCP: read/write deliverables, check existing content artifacts, add_evidence/query_evidence
+- `vault` MCP: read/write deliverables, check existing content artifacts, vault_add_evidence/vault_query_evidence
 - `python-scripts` MCP: nlp analysis for content scoring (python_nlp_analyze)
 - `google-apis` MCP: google_pagespeed, google_crux, google_search_console_queries, google_ga4_report
 - Bash, WebFetch, WebSearch: research and content fetching
@@ -137,4 +137,4 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **You read:** `entities/competitors.md`, `keywords/keyword-map.md`, `backlinks/link-gap.md`, seo-local's `google_reviews` payloads (social proof), `audits/local-grid.md`.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

@@ -1,4 +1,4 @@
-import "./env.js"; // must stay first: repo-root cwd + .env loading
+import "@seo-slop/shared/env"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { brainRoot, fitResponse, isValidClient, isWithin, redact, tail } from "./util.js";
+import { brainRoot, fitResponse, isValidClient, isWithin, redact, tail } from "@seo-slop/shared/util";
 import { creditsOf, firecrawlSpendReport, recordFirecrawl } from "./spend.js";
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,12 @@ function sanitizeSegment(segment: string): string {
 }
 
 function pageRelPath(url: string, ext: string): string {
-  const u = new URL(url);
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return `${sanitizeSegment(String(url ?? "page"))}${ext}`;
+  }
   const parts = u.pathname.split("/").filter(Boolean).map(sanitizeSegment);
   const base = parts.length ? parts.join("/") : "index";
   return `${base}${ext}`;
@@ -215,17 +220,6 @@ function resolveOutputDir(outputDir: string | undefined, clientSlug: string | un
   return resolved;
 }
 
-/** pause_file must live in the client dir (with slug) or <brain>/_system. */
-function resolvePauseFile(pauseFile: string, clientSlug: string | undefined): string {
-  const dir = clientDir(clientSlug);
-  const system = path.join(brainRoot(), "_system");
-  const resolved = path.resolve(dir ?? system, pauseFile);
-  if (!isWithin(system, resolved) && !(dir && isWithin(dir, resolved))) {
-    throw new Error(`pause_file must be inside ${dir ? `${dir} or ` : ""}${system} (got ${resolved})`);
-  }
-  return resolved;
-}
-
 const SLUG_PROP = {
   type: "string",
   description:
@@ -253,7 +247,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "crawlers_scrape",
       description:
-        "Scrape a single URL. Auto-routes: tries Scrapling stealth (free) first, falls back to Firecrawl (credits) if stealth fails. Returns clean markdown/html.",
+        "Scrape a single URL. Auto-router: Firecrawl first (best JS-rendered markdown, uses credits), Scrapling stealth fallback (free) when Firecrawl errors, has no key, or the page returns a non-2xx/3xx status. Response is {backend, fallback_reason, result}: backend is \"firecrawl\" or \"scrapling-stealth\"; fallback_reason is the Firecrawl error when it fell back (null otherwise).",
       inputSchema: {
         type: "object",
         properties: {
@@ -262,7 +256,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           solve_cloudflare: {
             type: "boolean",
             default: true,
-            description: "Attempt Cloudflare bypass when using Scrapling",
+            description: "Attempt Cloudflare bypass on the Scrapling stealth fallback",
           },
           client_slug: SLUG_PROP,
         },
@@ -274,7 +268,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "crawlers_scrape_scrapling",
       description:
-        "Scrape a single URL using Scrapling (free, anti-bot). Supports HTTP/stealth/dynamic modes with Cloudflare bypass.",
+        "Scrape a single URL using Scrapling (free). Best for Cloudflare/bot-protected pages (mode stealth + solve_cloudflare); also the fallback reader when Firecrawl fails (mode dynamic for JS pages). Modes: http, stealth, dynamic.",
       inputSchema: {
         type: "object",
         properties: {
@@ -307,7 +301,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "crawlers_scrape_firecrawl",
       description:
-        "Scrape a single URL with full JS rendering via Firecrawl (uses credits). Handles SPAs and anti-bot challenges.",
+        "Scrape a single URL with full JS rendering via Firecrawl (uses credits). First choice for reading a page (cleanest JS-rendered markdown); only tool for mobile emulation and screenshots (mobile:true, formats:[\"screenshot\"]).",
       inputSchema: {
         type: "object",
         properties: {
@@ -324,25 +318,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           waitFor: { type: "number", description: "Extra delay in ms for lazy-loaded content" },
           mobile: { type: "boolean", default: false, description: "Emulate a mobile device" },
-          client_slug: SLUG_PROP,
-        },
-        required: ["url"],
-      },
-    },
-
-    // ── Crawl4AI tool ────────────────────────────────────────────────────
-    {
-      name: "crawlers_scrape_crawl4ai",
-      description:
-        "Scrape a single URL using Crawl4AI (free, local). Returns LLM-optimized markdown with pruning filter. Best for structured content extraction.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "URL to scrape" },
-          css_selector: { type: "string", description: "CSS selector to extract (optional)" },
-          wait_for: { type: "string", description: "Wait condition e.g. css:.loaded (optional)" },
-          screenshot: { type: "boolean", default: false, description: "Capture screenshot" },
-          cache_bypass: { type: "boolean", default: false, description: "Bypass cache" },
           client_slug: SLUG_PROP,
         },
         required: ["url"],
@@ -376,7 +351,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "crawlers_crawl",
       description:
-        "Crawl an entire site via Firecrawl (JS-rendered, respects robots/sitemap). Writes one markdown file per page to the output dir.",
+        "Crawl an entire site via Firecrawl (JS-rendered, respects robots/sitemap). First choice for whole-site crawls (use includePaths for topic crawls). Writes one markdown file per page to the output dir.",
       inputSchema: {
         type: "object",
         properties: {
@@ -414,7 +389,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "crawlers_crawl_crawl4ai",
       description:
-        "Deep crawl a site using Crawl4AI (free, local). Supports BFS/DFS/BestFirst strategies with keyword scoring. Saves per-page markdown.",
+        "Deep crawl a site using Crawl4AI (free, local). Free fallback for whole-site/topic crawls when Firecrawl crawl (crawlers_crawl) fails. Supports BFS/DFS/BestFirst strategies (best-first + keywords for topic crawls). Saves per-page markdown.",
       inputSchema: {
         type: "object",
         properties: {
@@ -436,34 +411,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: "Crawl strategy",
           },
           keywords: { type: "string", description: "Comma-separated keywords for BestFirst scorer" },
-        },
-        required: ["url"],
-      },
-    },
-
-    // ── Scrapling spider tool ────────────────────────────────────────────
-    {
-      name: "crawlers_crawl_scrapling",
-      description:
-        "Crawl a site using Scrapling's Spider framework (free). Concurrent requests, pause/resume support, internal link discovery.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "Start URL" },
-          client_slug: {
-            type: "string",
-            description: "Optional client slug (must be an onboarded client) — saves to <brain>/<slug>/.raw/crawlers/<host>/; without it results go to <brain>/_system/crawls/<host>/",
-          },
-          output_dir: {
-            type: "string",
-            description: "Override output directory; must resolve inside <brain>/<slug>/.raw/crawlers/ (or <brain>/_system/crawls/ without a slug). Relative paths resolve from there.",
-          },
-          max_pages: { type: "number", default: 20, description: "Max pages" },
-          concurrency: { type: "number", default: 3, description: "Concurrent requests" },
-          pause_file: {
-            type: "string",
-            description: "Touch this file to pause crawl; must be inside the client dir or <brain>/_system (relative paths resolve from there)",
-          },
         },
         required: ["url"],
       },
@@ -503,31 +450,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           client_slug?: string;
         };
 
-        // Try Scrapling stealth first (free)
+        // 1st choice: Firecrawl (best JS-rendered markdown, credits logged per client)
+        let fallbackReason: string;
         try {
-          const pyArgs = [scriptPath("scrapling_fetch.py"), "--url", url, "--mode", "stealth"];
-          if (solve_cloudflare) pyArgs.push("--solve-cloudflare");
-          if (css_selector) pyArgs.push("--css-selector", css_selector);
-          const output = await runPython(pyArgs, 60000);
-          const parsed = JSON.parse(output);
-          if (parsed.status && parsed.status >= 200 && parsed.status < 400) {
-            return await textResult(output, name, client_slug);
+          const data = await firecrawlTracked(name, url, client_slug, "/v2/scrape", {
+            method: "POST",
+            body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+          }, 1);
+          const status = Number(data?.data?.metadata?.statusCode);
+          if (data?.success === false) {
+            fallbackReason = `Firecrawl returned success=false${data?.error ? `: ${redact(String(data.error))}` : ""}`;
+          } else if (Number.isFinite(status) && (status < 200 || status >= 400)) {
+            fallbackReason = `Firecrawl fetched the page but it returned HTTP ${status}`;
+          } else {
+            return await textResult(
+              JSON.stringify({ backend: "firecrawl", fallback_reason: null, result: data }, null, 2),
+              name,
+              client_slug,
+            );
           }
-        } catch {
-          // Scrapling failed, fall through to Firecrawl
+        } catch (err) {
+          fallbackReason = `Firecrawl failed: ${errText(err)}`;
         }
 
-        // Fallback to Firecrawl
-        const body: Record<string, unknown> = {
-          url,
-          formats: ["markdown"],
-          onlyMainContent: true,
-        };
-        const data = await firecrawlTracked(name, url, client_slug, "/v2/scrape", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }, 1);
-        return await textResult(JSON.stringify(data, null, 2), name, client_slug);
+        // Fallback: Scrapling stealth (free)
+        process.stderr.write(`[crawlers_scrape] falling back to Scrapling stealth for ${url}: ${fallbackReason}\n`);
+        const pyArgs = [scriptPath("scrapling_fetch.py"), "--url", url, "--mode", "stealth"];
+        if (solve_cloudflare) pyArgs.push("--solve-cloudflare");
+        if (css_selector) pyArgs.push("--css-selector", css_selector);
+        let output: string;
+        try {
+          output = await runPython(pyArgs, 90000);
+        } catch (err) {
+          throw new Error(`${fallbackReason}; Scrapling stealth fallback also failed: ${errText(err)}`);
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(output);
+        } catch {
+          parsed = output;
+        }
+        return await textResult(
+          JSON.stringify({ backend: "scrapling-stealth", fallback_reason: fallbackReason, result: parsed }, null, 2),
+          name,
+          client_slug,
+        );
       }
 
       // ── Scrapling: crawlers_scrape_scrapling ──────────────────────────
@@ -587,27 +554,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           body: JSON.stringify(body),
         }, 1);
         return await textResult(JSON.stringify(data, null, 2), name, client_slug);
-      }
-
-      // ── Crawl4AI: crawlers_scrape_crawl4ai ────────────────────────────
-      case "crawlers_scrape_crawl4ai": {
-        const { url, css_selector, wait_for, screenshot = false, cache_bypass = false, client_slug } = args as {
-          url: string;
-          css_selector?: string;
-          wait_for?: string;
-          screenshot?: boolean;
-          cache_bypass?: boolean;
-          client_slug?: string;
-        };
-
-        const pyArgs = [scriptPath("crawl4ai_scrape.py"), "--url", url];
-        if (css_selector) pyArgs.push("--css-selector", css_selector);
-        if (wait_for) pyArgs.push("--wait-for", wait_for);
-        if (screenshot) pyArgs.push("--screenshot");
-        if (cache_bypass) pyArgs.push("--cache-bypass");
-
-        const output = await runPython(pyArgs, 90000);
-        return await textResult(output, name, client_slug);
       }
 
       // ── Map: crawlers_map ─────────────────────────────────────────────
@@ -749,6 +695,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const files: Array<{ url: string; title?: string; statusCode?: number; path: string }> = [];
         for (const page of result.data ?? []) {
+          // Firecrawl v2 puts the page URL in metadata (sourceURL/url), not at the top level.
+          page.url = page.url ?? page.metadata?.sourceURL ?? page.metadata?.url ?? url;
           const ext = (page.markdown ?? page.html ?? page.rawHtml) ? ".md" : ".json";
           const content =
             page.markdown ??
@@ -832,44 +780,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (keywords) pyArgs.push("--keywords", keywords);
 
         const output = await runPython(pyArgs, 300000); // 5 min for deep crawls
-        return await textResult(output, name, client_slug);
-      }
-
-      // ── Scrapling spider: crawlers_crawl_scrapling ────────────────────
-      case "crawlers_crawl_scrapling": {
-        const {
-          url,
-          client_slug,
-          output_dir,
-          max_pages = 20,
-          concurrency = 3,
-          pause_file,
-        } = args as {
-          url: string;
-          client_slug?: string;
-          output_dir?: string;
-          max_pages?: number;
-          concurrency?: number;
-          pause_file?: string;
-        };
-
-        const outDir = resolveOutputDir(output_dir, client_slug, url);
-        const pauseFile = pause_file ? resolvePauseFile(pause_file, client_slug) : undefined;
-        await mkdir(outDir, { recursive: true });
-
-        const pyArgs = [
-          scriptPath("scrapling_spider.py"),
-          "--url", url,
-          "--max-pages", String(max_pages),
-          "--concurrency", String(concurrency),
-          "--output-dir", outDir,
-        ];
-        if (pauseFile) {
-          await mkdir(path.dirname(pauseFile), { recursive: true });
-          pyArgs.push("--pause-file", pauseFile);
-        }
-
-        const output = await runPython(pyArgs, 300000); // 5 min for spider crawls
         return await textResult(output, name, client_slug);
       }
 

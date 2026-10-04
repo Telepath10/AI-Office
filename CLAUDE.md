@@ -21,6 +21,8 @@ Either harness works if the other is deleted. Nothing in one harness’s config 
 
 Default agent is `seo-slop` (set in `.claude/settings.json`). Skills live in repo `skills/` and are discovered via `.claude/skills/` symlinks.
 
+Agent prompts: edit `.claude/agents/*`, then run `node scripts/sync-agents.mjs` (regenerates `.opencode/agent/*` and opencode.json descriptions; `<!-- claude-only -->…<!-- /claude-only -->` / `<!-- opencode-only: … -->` mark harness-specific text).
+
 MCP tools appear as `mcp__<server>__<server-prefix>_<tool>`, e.g. `mcp__vault__vault_publish_note`, `mcp__dataforseo__dataforseo_spend`, `mcp__google-apis__google_pagespeed`. Prose prompts use the short name (`publish_note`, `render_audit`) as shorthand only; nothing resolves it automatically, so call the full name.
 
 Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools. Specialists only get vault read/write, evidence, `render_audit` and `check_content`; `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub` and `render_executive_report` are orchestrator-only (`seo-vault` also keeps `cleanup`). `.env` reads are denied in both harnesses.
@@ -66,13 +68,13 @@ Record live-data claims with vault `add_evidence` (`specialist_id`, `claim`, `pr
 
 | Capability | Keys | Primary tools |
 |---|---|---|
-| Core SEO (SERP, Maps SERP, Labs keywords/competitors, Trends, on-page, tech stack, content mentions, business listings, reviews) | `DATAFORSEO_LOGIN`/`PASSWORD`; `DATAFORSEO_DEFAULT_LOCATION`/`LANGUAGE` (default India/English) | `dataforseo_*` MCP (32 tools). Ownership per specialist and phase order: `skills/seo-playbook/SKILL.md` |
+| Core SEO (SERP, Maps SERP, Labs keywords/competitors, Trends, on-page, tech stack, content mentions, business listings, reviews) | `DATAFORSEO_LOGIN`/`PASSWORD`; `DATAFORSEO_DEFAULT_LOCATION`/`LANGUAGE` (default India/English) | `dataforseo_*` MCP (31 tools). Ownership per specialist and phase order: `skills/seo-playbook/SKILL.md` (`onpage_instant` is shared; seo-technical owns `domain_technologies`) |
 | DataForSEO spend | same | `dataforseo_spend` (free): per-client ledger `meta/spend/dataforseo.jsonl` + balance. Always pass `client_slug`; full payloads auto-save to `.raw/dataforseo/` |
 | Backlinks | DataForSEO (primary) + `BING_WEBMASTER_API_KEY` + CommonCrawl | `dataforseo_backlinks`, `dataforseo_domain_summary`, Bing/CommonCrawl via python-scripts. Moz optional/skipped. |
 | AI / GEO (LLM mentions) | Same DataForSEO login | `dataforseo_llm_mentions_*` (search, metrics, top_domains, top_pages). ~$0.05/call. Enable AI Optimization in the DataForSEO dashboard if live calls fail. |
 | AI / GEO (LLM responses) | Same DataForSEO login | `dataforseo_llm_response` (Claude/Gemini/Perplexity/ChatGPT Live), `dataforseo_llm_models`. ~$0.01/call with cheap models. Log actual `cost` from the response JSON as `cost_usd` in evidence. |
-| Google APIs | `GOOGLE_API_KEY` + ADC | `google-apis` MCP (PSI, CrUX, GSC, GA4) |
-| Scraping / crawl | `FIRECRAWL_API_KEY`, crawlers venv | `crawlers` MCP; `crawlers_spend` (free) reports Firecrawl credits per client. Always pass `client_slug` |
+| Google APIs | `GOOGLE_API_KEY` + ADC | `google-apis` MCP (PSI, CrUX incl. 25-week `history`, GSC with `dimensions`, GA4 with `dimensions`) |
+| Scraping / crawl | `FIRECRAWL_API_KEY`, crawlers venv | `crawlers` MCP: best tool first, free only as fallback (`crawlers_scrape` tries Firecrawl, then Scrapling stealth; Crawl4AI is a fallback crawler). Routing table in `seo-technical`/`seo-slop` prompts. `crawlers_spend` (free) reports Firecrawl credits per client. Always pass `client_slug` |
 | Social trends & news (read-only) | agent-reach venv (`vendored/agent-reach`); dedicated accounts only: `TWITTER_AUTH_TOKEN`/`TWITTER_CT0`, `REDDIT_SESSION`, dedicated Chrome profile + OpenCLI extension for Instagram/Facebook. YouTube and Google News need nothing | `social` MCP: `social_status`, `social_trends`, `social_search`, `social_read`. Prompt the user when `credentials_missing` is non-empty |
 | Python scripts | `PYTHON_BIN` | `python-scripts` MCP |
 

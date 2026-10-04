@@ -3,20 +3,8 @@
 #   python3 -m venv vendored/claude-seo/.venv
 #   vendored/claude-seo/.venv/bin/pip install -r vendored/claude-seo/requirements.txt
 
-# Core — fetch_page, backlinks, DataForSEO/Google helpers
+# Core — fetch_page, pagespeed_check, backlinks, Google helpers
 requests>=2.31
 # HTML parsing — parse_html.py, drift_baseline.py / drift_compare.py
 beautifulsoup4>=4.12
 lxml>=5.0
-# Charts — google_report.py, release_report.py
-matplotlib>=3.8
-numpy>=1.26
-# Markdown -> PDF (also needs Homebrew pango/cairo/glib/harfbuzz)
-weasyprint>=62
-Markdown>=3.5
-
-# Optional (only some scripts; install on demand):
-# google-api-python-client google-auth   # gsc_query / ga4_report service-account mode
-# openpyxl                               # Excel exports
-# playwright                             # JS-rendered fetch (then: playwright install chromium)
-# pypdf                                  # PDF inspection

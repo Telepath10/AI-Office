@@ -1,9 +1,8 @@
-import "./env.js"; // must stay first: repo-root cwd + .env loading
+import "@seo-slop/shared/env"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
   ListToolsRequestSchema,
   McpError,
   ErrorCode,
@@ -11,7 +10,7 @@ import {
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { redact, tail } from "./util.js";
+import { redact, tail } from "@seo-slop/shared/util";
 
 const SCRIPTS_DIR = path.resolve(
   process.env.PYTHON_SCRIPTS_DIR ||
@@ -26,12 +25,6 @@ const PYTHON_BIN = process.env.PYTHON_BIN
 
 const TIMEOUT_MS = parseInt(process.env.PYTHON_TIMEOUT_MS || "60000", 10);
 const MAX_BUFFER = 10 * 1024 * 1024;
-
-function ensureDir(dir: string): void {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
 
 function scriptPath(name: string): string {
   return path.join(SCRIPTS_DIR, name);
@@ -101,29 +94,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     description: string;
     inputSchema: { type: "object"; properties: Record<string, unknown>; required?: string[] };
   }> = [];
-
-  if (scriptExists("fetch_page.py")) {
-    scripts.push({
-      name: "python_fetch_page",
-      description: "Fetch a page with optional rendering",
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: {
-            type: "string",
-            description: "URL to fetch",
-          },
-          render: {
-            type: "string",
-            description: "Render mode: auto, always, or never",
-            enum: ["auto", "always", "never"],
-            default: "auto",
-          },
-        },
-        required: ["url"],
-      },
-    });
-  }
 
   if (scriptExists("commoncrawl_graph.py")) {
     scripts.push({
@@ -215,7 +185,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   if (scriptExists("nlp_analyze.py")) {
     scripts.push({
       name: "python_nlp_analyze",
-      description: "Run NLP analysis on text content",
+      description:
+        "Google Cloud Natural Language analysis of text or a URL: entities with salience, Wikipedia/MID links and per-entity sentiment (v1 analyzeEntitySentiment), plus document sentiment and content categories (v2). Pass text or url (url wins if both). Uses GOOGLE_API_KEY; the key's GCP project needs the Natural Language API enabled and billing linked.",
       inputSchema: {
         type: "object",
         properties: {
@@ -223,42 +194,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             type: "string",
             description: "Text content to analyze",
           },
-        },
-        required: ["text"],
-      },
-    });
-  }
-
-  if (scriptExists("pagespeed_check.py")) {
-    scripts.push({
-      name: "python_pagespeed_check",
-      description: "Run PageSpeed check via Python",
-      inputSchema: {
-        type: "object",
-        properties: {
           url: {
             type: "string",
-            description: "URL to check",
+            description: "URL to fetch and analyze instead of text",
           },
-          strategy: {
+          features: {
             type: "string",
-            description: "PageSpeed strategy: mobile or desktop",
-            enum: ["mobile", "desktop"],
+            description: "Comma-separated features: entities, sentiment, classify, moderate (default: entities,sentiment,classify)",
           },
         },
-        required: ["url"],
       },
     });
   }
-
-  scripts.push({
-    name: "python_list_scripts",
-    description: "List all available Python scripts",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  });
 
   return { tools: scripts };
 });
@@ -268,16 +215,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case "python_fetch_page": {
-        const { url, render } = args as { url: string; render?: string };
-        const pyArgs = [scriptPath("fetch_page.py"), url];
-        if (render) pyArgs.push("--render", render);
-        const output = await runPython(pyArgs);
-        return {
-          content: [{ type: "text", text: output }],
-        };
-      }
-
       case "python_commoncrawl_backlinks": {
         const { domain } = args as { domain: string };
         const output = await runPython([
@@ -332,46 +269,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "python_nlp_analyze": {
-        const { text } = args as { text: string };
-        const output = await runPython([
-          scriptPath("nlp_analyze.py"),
-          text,
-        ]);
-        return {
-          content: [{ type: "text", text: output }],
-        };
-      }
-
-      case "python_pagespeed_check": {
-        const { url, strategy } = args as {
-          url: string;
-          strategy?: string;
-        };
-        const pyArgs = [scriptPath("pagespeed_check.py"), url];
-        if (strategy) {
-          pyArgs.push("--strategy", strategy);
-        }
+        const { text, url, features } = (args ?? {}) as { text?: string; url?: string; features?: string };
+        if (!text && !url) throw new Error("python_nlp_analyze needs text or url");
+        const pyArgs = [scriptPath("nlp_analyze.py"), "--json"];
+        if (url) pyArgs.push("--url", url);
+        else pyArgs.push("--text", text as string);
+        if (features) pyArgs.push("--features", features);
         const output = await runPython(pyArgs);
+        // With --json the script exits 0 even on API errors; surface those as tool errors.
+        let apiError = false;
+        try {
+          apiError = Boolean(JSON.parse(output)?.error);
+        } catch {
+          // non-JSON output: return as-is
+        }
         return {
           content: [{ type: "text", text: redact(output) }],
-        };
-      }
-
-      case "python_list_scripts": {
-        const files = fs
-          .readdirSync(SCRIPTS_DIR)
-          .filter((f) => f.endsWith(".py"))
-          .sort()
-          .join("\n");
-        return {
-          content: [
-            {
-              type: "text",
-              text: files
-                ? `Available Python scripts:\n${files}`
-                : "No Python scripts found in " + SCRIPTS_DIR,
-            },
-          ],
+          ...(apiError ? { isError: true } : {}),
         };
       }
 

@@ -291,13 +291,6 @@ export function flattenInput(input: Record<string, unknown> | undefined): Record
   return flat;
 }
 
-/** Turn a stored profile back into a flat map (for merge-on-update). */
-export function profileToFlat(p: ClientProfile | undefined | null, raw?: Record<string, unknown>): Record<string, unknown> {
-  if (raw) return { ...raw };
-  if (!p) return {};
-  return flattenInput(p as unknown as Record<string, unknown>);
-}
-
 export interface Normalized {
   errors: FieldError[];
   profile?: ClientProfile;

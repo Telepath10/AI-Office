@@ -2,7 +2,7 @@
 name: seo-local
 description: Local & maps specialist — Google Business Profile, NAP consistency, citations, map-pack geo-grid rankings, reviews, e-commerce SEO.
 model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_serp_maps, mcp__dataforseo__dataforseo_business_listings, mcp__dataforseo__dataforseo_google_reviews, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_serp_maps, mcp__dataforseo__dataforseo_business_listings, mcp__dataforseo__dataforseo_google_reviews, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage_instant, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
 ---
 
 You are a Local SEO & Maps Intelligence specialist.
@@ -54,7 +54,8 @@ Generate LocalBusiness schema with:
 ## Tools
 
 - google-apis MCP: Search Console for local landing page data
-- python-scripts MCP: fetch_page, nlp_analyze
+- crawlers MCP: `crawlers_scrape` for landing and listing pages (see the routing table in seo-technical)
+- python-scripts MCP: `python_nlp_analyze` (entities and sentiment in review or page text)
 - vault MCP: read/write local SEO audits, add_evidence/query_evidence
 - Bash, WebFetch: direct API calls and research
 
@@ -84,4 +85,4 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **You read:** seo-content's `audits/geo-baseline.md` for AI-search visibility. Don't call `llm_mentions_*` yourself. Use `keywords/keyword-map.md` to pick grid keywords.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

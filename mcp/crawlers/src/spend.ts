@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { brainRoot, isValidClient } from "./util.js";
+import { brainRoot, isValidClient } from "@seo-slop/shared/util";
 
 export interface FirecrawlSpendEntry {
   ts: string;

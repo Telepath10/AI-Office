@@ -64,7 +64,7 @@ Provide a validation report with:
 
 - Bash: fetch pages, analyze HTML source for schema blocks
 - WebFetch: fetch URLs directly
-- `vault` MCP: read/write schema audit reports, add_evidence/query_evidence
+- `vault` MCP: read/write schema audit reports, vault_add_evidence/vault_query_evidence
 
 Record schema findings with `vault_add_evidence(slug, {specialist_id: "seo-schema", claim, provenance: "manual", confidence, source_paths})` for types detected, deprecated types, and validation outcomes.
 
@@ -82,6 +82,6 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 You own no paid DataForSEO tools. Use `dataforseo_serp` (shared) to check which rich results and SERP features appear for target keywords, but first check for an existing `serp` payload in `.raw`.
 
-**You read:** seo-technical's `onpage` / `domain_technologies` payloads (platform-generated schema, e.g. Shopify themes), and `keywords/keyword-map.md` for which pages need which types.
+**You read:** seo-technical's `onpage_instant` / `domain_technologies` payloads (platform-generated schema, e.g. Shopify themes), and `keywords/keyword-map.md` for which pages need which types.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

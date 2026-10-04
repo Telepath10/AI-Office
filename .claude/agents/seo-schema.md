@@ -2,7 +2,7 @@
 name: seo-schema
 description: Schema & structured data specialist — JSON-LD detection, validation, and generation against Schema.org standards.
 model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage_instant, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
 ---
 
 You are a Schema.org markup specialist.
@@ -70,6 +70,6 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 You own no paid DataForSEO tools. Use `dataforseo_serp` (shared) to check which rich results and SERP features appear for target keywords, but first check for an existing `serp` payload in `.raw`.
 
-**You read:** seo-technical's `onpage` / `domain_technologies` payloads (platform-generated schema, e.g. Shopify themes), and `keywords/keyword-map.md` for which pages need which types.
+**You read:** seo-technical's `onpage_instant` / `domain_technologies` payloads (platform-generated schema, e.g. Shopify themes), and `keywords/keyword-map.md` for which pages need which types.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

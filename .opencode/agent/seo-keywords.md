@@ -51,7 +51,7 @@ Generate "X vs Y" and "alternatives to X" page content:
 
 ## Data sources (check availability)
 
-- `vault` MCP: read existing keyword artifacts, write new ones, add_evidence/query_evidence
+- `vault` MCP: read existing keyword artifacts, write new ones, vault_add_evidence/vault_query_evidence
 - WebSearch: manual SERP inspection for context
 - WebFetch: scrape SERP pages directly when MCP is unavailable
 
@@ -87,6 +87,6 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 - **Phase 1:** ranked keywords for the top 3–5 competitors (filter positions ≤20). Gap = keywords they rank for that the client doesn't. Expand seeds, run one difficulty call and one intent call, run trends, and run serp on the top 10–20 targets. Write `keywords/keyword-map.md` with exactly one URL per keyword.
 - **Phase 4:** re-run overview + ranked keywords (client) and report the deltas.
 
-**You read:** technical's `onpage` payloads (landing-page fit), Search Console data from seo-google (first-party wins on conflict).
+**You read:** technical's `onpage_instant` payloads (landing-page fit), Search Console data from seo-google (first-party wins on conflict).
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

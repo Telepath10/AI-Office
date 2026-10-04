@@ -173,8 +173,8 @@ else
   WARN "CRAWLERS_SCRIPTS_DIR — not set (crawlers MCP optional)"; wrn
 fi
 # Moz optional — skipped; DataForSEO is primary backlink path
-if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
-  PASS "Moz — set (optional; DataForSEO remains primary)"; ok
+if [ -n "${MOZ_API_KEY:-}" ]; then
+  PASS "Moz — MOZ_API_KEY set (optional; DataForSEO remains primary)"; ok
 else
   INFO "Moz — not configured (optional/skipped; use DataForSEO backlinks)"
 fi
@@ -307,8 +307,8 @@ if [ "$LIVE" -eq 1 ]; then
   fi
 
   # Moz — skipped by default; DataForSEO is primary backlink path
-  if [ -n "${MOZ_ACCESS_ID:-}" ] && [ -n "${MOZ_SECRET_KEY:-}" ]; then
-    INFO "Moz — present but not smoke-tested (optional; DataForSEO primary)"
+  if [ -n "${MOZ_API_KEY:-}" ]; then
+    INFO "Moz — MOZ_API_KEY present but not smoke-tested (optional; DataForSEO primary)"
   else
     INFO "Moz — not configured (optional/skipped; DataForSEO backlinks are primary)"
   fi
@@ -411,13 +411,6 @@ if venv_py_ok "$PYBIN"; then
       FAIL "venv missing '$pkg' (bash scripts/setup-venvs.sh claude-seo)"; err
     fi
   done
-  for pkg in matplotlib numpy; do
-    if "$PYBIN" -c "import $pkg" 2>/dev/null; then
-      PASS "venv has '$pkg'"; ok
-    else
-      WARN "venv missing '$pkg' (needed by google_report.py / release_report.py)"; wrn
-    fi
-  done
 else
   FAIL "python venv missing or broken at $PYBIN (bash scripts/setup-venvs.sh claude-seo)"; err
 fi
@@ -476,18 +469,15 @@ for f in "$ROOT"/vendored/claude-seo/scripts/*.py; do
 done
 [ "$PYCOMPILE_FAIL" -eq 0 ] && PASS "all vendored python scripts parse" && ok
 
-# squirrel CLI (audit skill)
-if command -v squirrel >/dev/null 2>&1; then
-  PASS "squirrel CLI ($(squirrel --version 2>&1 | head -1))"; ok
-else
-  WARN "squirrel CLI not found (audit skill needs it)"; wrn
-fi
-
 # Neutral skills home (shared by both harnesses)
-if [ -f "$ROOT/skills/seo-brain/SKILL.md" ] && [ -f "$ROOT/skills/humanizer/SKILL.md" ] && [ -f "$ROOT/skills/seo-basics/SKILL.md" ]; then
-  PASS "neutral skills/ present (seo-brain, seo-basics, humanizer)"; ok
+SKILL_NAMES=()
+for d in "$ROOT"/skills/*/; do
+  [ -f "$d/SKILL.md" ] && SKILL_NAMES+=("$(basename "$d")")
+done
+if [ "${#SKILL_NAMES[@]}" -gt 0 ] && [ -f "$ROOT/skills/seo-brain/SKILL.md" ] && [ -f "$ROOT/skills/seo-playbook/SKILL.md" ]; then
+  PASS "neutral skills/ present (${SKILL_NAMES[*]})"; ok
 else
-  FAIL "skills/ missing or incomplete (expected skills/{seo-brain,seo-basics,humanizer}/SKILL.md)"; err
+  FAIL "skills/ missing or incomplete (expected skills/<name>/SKILL.md incl. seo-brain, seo-playbook)"; err
 fi
 
 # ─── Harness layers (optional; each independent of the other) ───────────────
@@ -511,7 +501,7 @@ if [ -f "$ROOT/opencode.json" ]; then
   else
     FAIL "opencode: start.sh missing"; err
   fi
-  if grep -q '"paths": \["skills"\]' "$ROOT/opencode.json" 2>/dev/null; then
+  if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("skills",{}).get("paths")==["skills"] else 1)' "$ROOT/opencode.json" 2>/dev/null; then
     PASS "opencode: skills.paths points at neutral skills/"; ok
   else
     WARN "opencode: skills.paths is not [\"skills\"] — update opencode.json"; wrn
@@ -544,7 +534,7 @@ if [ -f "$ROOT/.claude/settings.json" ]; then
   else
     WARN "claude: CLAUDE.md missing (project instructions)"; wrn
   fi
-  for s in seo-brain seo-basics humanizer; do
+  for s in ${SKILL_NAMES[@]+"${SKILL_NAMES[@]}"}; do
     link="$ROOT/.claude/skills/$s"
     if [ -L "$link" ] && [ -f "$link/SKILL.md" ]; then
       PASS "claude: skill symlink $s resolves"; ok
@@ -554,6 +544,10 @@ if [ -f "$ROOT/.claude/settings.json" ]; then
       FAIL "claude: skill $s missing or broken symlink (.claude/skills/$s → ../../skills/$s)"; err
     fi
   done
+  for link in "$ROOT"/.claude/skills/*; do
+    [ -L "$link" ] || continue
+    [ -e "$link" ] || { WARN "claude: stale skill symlink $(basename "$link") (target missing; remove it)"; wrn; }
+  done
   if grep -q '"agent": "seo-slop"' "$ROOT/.claude/settings.json" 2>/dev/null; then
     PASS "claude: default agent is seo-slop"; ok
   else
@@ -561,6 +555,19 @@ if [ -f "$ROOT/.claude/settings.json" ]; then
   fi
 else
   INFO "claude not configured (no .claude/settings.json) — skip Claude Code checks"
+fi
+
+# Agent prompt sync (.claude/agents → .opencode/agent + opencode.json descriptions)
+if [ -d "$ROOT/.claude/agents" ] && [ -f "$ROOT/opencode.json" ] && [ -f "$ROOT/scripts/sync-agents.mjs" ]; then
+  if sync_out="$(node "$ROOT/scripts/sync-agents.mjs" --check 2>&1)"; then
+    if printf '%s\n' "$sync_out" | grep -q '^warning:'; then
+      WARN "agents: in sync, but tools/permission mismatches (node scripts/sync-agents.mjs --check)"; wrn
+    else
+      PASS "agents: opencode prompts in sync with .claude/agents"; ok
+    fi
+  else
+    WARN "agents: opencode prompts drifted from .claude/agents — run: node scripts/sync-agents.mjs"; wrn
+  fi
 fi
 
 # ─── 6. cleanup ──────────────────────────────────────────────────────────────

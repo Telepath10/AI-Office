@@ -54,12 +54,27 @@ See **Audit deliverable format** below. Technical checks map to categories `get_
 
 ## Tools available
 
-- `vault` MCP: read/write audit notes, check for existing artifacts, add_evidence/query_evidence
-- `google-apis` MCP: google_pagespeed, google_crux
-- `python-scripts` MCP: python_fetch_page, python_pagespeed_check
-- `crawlers` MCP: `crawlers_scrape` (auto-routes Scrapling→Firecrawl), `crawlers_scrape_scrapling` (free anti-bot, Cloudflare bypass), `crawlers_scrape_firecrawl` (JS-rendered, credits), `crawlers_scrape_crawl4ai` (free, LLM-optimized markdown), `crawlers_crawl` (full-site via Firecrawl), `crawlers_crawl_crawl4ai` (deep crawl BFS/DFS/BestFirst), `crawlers_crawl_scrapling` (Spider framework), `crawlers_map` (URL discovery)
-- Bash: curl, fetch pages, run Python scripts directly
+- `vault` MCP: `vault_read_note`, `vault_write_note`, `vault_list_notes`, `vault_read_hot` (audit notes, existing artifacts), `vault_add_evidence`, `vault_query_evidence`
+- `google-apis` MCP: `google_pagespeed`, `google_crux` (`history: true` for the 25-week field-data trend)
+- `crawlers` MCP: `crawlers_scrape` (router: Firecrawl first, then Scrapling stealth), `crawlers_scrape_firecrawl` (JS-rendered, mobile, screenshots; credits), `crawlers_scrape_scrapling` (free; anti-bot, Cloudflare), `crawlers_map` (URL discovery), `crawlers_crawl` (full site via Firecrawl), `crawlers_crawl_crawl4ai` (free BFS/DFS/best-first fallback). Saves to brain `.raw/crawlers/`
+- `dataforseo` MCP: `dataforseo_onpage_instant`, `dataforseo_domain_technologies` (see DataForSEO below)
+- Bash: `curl -I` for headers, robots.txt and redirect chains
 - WebFetch: fetch URLs for analysis
+
+## Crawling and scraping: which tool
+
+Best tool first; free tools only as a fallback. `crawlers_scrape` routes on its own (Firecrawl first, then Scrapling stealth) and reports why it fell back. Firecrawl spends credits, which `crawlers_spend` reports per run.
+
+| Situation | 1st choice | Fallback | Why |
+|---|---|---|---|
+| Read one page (content, headings, links) | `crawlers_scrape_firecrawl` | `crawlers_scrape_scrapling` `mode:"dynamic"` | Firecrawl gives the cleanest JS-rendered markdown |
+| Cloudflare or bot-protected page | `crawlers_scrape_scrapling` `mode:"stealth"`, `solve_cloudflare:true` | `crawlers_scrape_firecrawl` | Scrapling's stealth browser is built for these challenges |
+| Mobile render or screenshot | `crawlers_scrape_firecrawl` `mobile:true`, `formats:["screenshot"]` | — | Only Firecrawl does both |
+| List a site's URLs | `crawlers_map` | Sitemap fetch, or `crawlers_crawl_crawl4ai` depth 1 | — |
+| Crawl the whole site | `crawlers_crawl` (Firecrawl) | `crawlers_crawl_crawl4ai` (BFS) | Firecrawl respects robots/sitemap and renders JS |
+| Topic-focused crawl (one section or keyword) | `crawlers_crawl` with `includePaths` | `crawlers_crawl_crawl4ai` `strategy:"best-first"` + `keywords` | — |
+| On-page SEO scores / checks | `dataforseo_onpage_instant` | — | Only source of `onpage_score` and check flags |
+| Raw HTTP headers / robots.txt | `curl -I` / WebFetch | — | No crawler needed |
 
 Record live measurements you actually observed (CWV from google_pagespeed/google_crux, crawl findings from crawlers) with `vault_add_evidence(slug, {specialist_id: "seo-technical", claim, provenance, confidence, source_paths, cost_usd?})` so the evidence ledger backs the audit.
 
@@ -75,15 +90,16 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **Reuse first.** Before a paid call, Glob `.seo-brain/<slug>/.raw/dataforseo/*-<tool>-<target>*.json` (tool name without the `dataforseo_` prefix). If a payload under 30 days old exists, Read it instead (monitoring runs excepted). Follow the phase order and artifact contracts in `skills/seo-playbook/SKILL.md`.
 
-**You own** (only you call these):
-- `dataforseo_onpage_instant`: single-page audit with options. Use `enable_javascript` for JS-rendered pages. Use `enable_browser_rendering` only when you suspect LCP/CLS problems and PageSpeed isn't available, because it costs more.
+**You own** (only you call this):
 - `dataforseo_domain_technologies`: CMS/stack detection (e.g. Shopify limits which fixes are possible). Record the platform in the audit.
-- `dataforseo_onpage` (shared): standard page audit (meta, headings, links, images, onpage_score)
+
+**Shared, and you are its default caller:**
+- `dataforseo_onpage_instant`: single-page audit (meta, headings, links, images, `onpage_score`, check flags). Use `enable_javascript` for JS-rendered pages. Use `enable_browser_rendering` only when you suspect LCP/CLS problems and PageSpeed isn't available, because it costs more.
 
 **Workflow.**
-- **Phase 0:** onpage for the homepage + key landing pages (from `keywords/keyword-map.md` or Search Console top pages), plus domain_technologies.
-- **Phase 3:** re-run onpage on each changed URL and compare with the earlier payload. Cite both raw_paths as before/after evidence.
+- **Phase 0:** `dataforseo_onpage_instant` for the homepage + key landing pages (from `keywords/keyword-map.md` or Search Console top pages), plus `dataforseo_domain_technologies`.
+- **Phase 3:** re-run `dataforseo_onpage_instant` on each changed URL and compare with the earlier payload. Cite both raw_paths as before/after evidence.
 
 **You read:** `keywords/keyword-map.md` for which URLs matter.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

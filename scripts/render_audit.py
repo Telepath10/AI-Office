@@ -9,12 +9,16 @@ Reads one JSON request on stdin, writes SVG charts, prints one JSON result on st
 meta: slug, client_name, site_url, date, cycle, title, pdf_name, chart_dir, chart_link_prefix
 
 Result: {"ok": bool, "errors": [...], "markdown": str, "scores": {...}, "data_gaps": [...], "charts": [...]}
+(audit mode also returns "findings" and "deduped": duplicate findings dropped). Chart files are written
+only after the rendered report passes the final lint.
 Spec: skills/audit-report/SKILL.md
 """
 import json
+import math
 import os
 import re
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import audit_charts as charts  # noqa: E402
@@ -142,7 +146,25 @@ def validate(data):
         for k in ("label", "value", "good", "poor"):
             if not isinstance(c, dict) or c.get(k) in (None, ""):
                 errors.append(f"metrics[{i}].{k} is required")
+            elif k != "label" and not is_number(c[k]):
+                name = str(c.get("label") or "").strip()
+                w = f'metrics[{i}] "{name[:40]}"' if name else f"metrics[{i}]"
+                errors.append(f"{w}.{k} must be a number (got {c[k]!r})")
     return errors
+
+
+def is_number(v):
+    """Finite int/float or numeric string; bools are rejected."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float)):
+        return math.isfinite(v)
+    if isinstance(v, str):
+        try:
+            return math.isfinite(float(v.strip()))
+        except ValueError:
+            return False
+    return False
 
 
 def client_text_fields(data):
@@ -185,6 +207,28 @@ def score(findings, assessed, excluded):
         cats[c] = max(0, 100 - d)
     overall = round(sum(cats.values()) / len(cats)) if cats else None
     return {"overall": overall, "categories": cats}
+
+
+def _norm(v):
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", str(v or "").lower())).strip()
+
+
+def dedupe_findings(findings):
+    """Drop repeats of the same problem within one audit, keyed on (category, normalized title, url/page).
+    The kept entry takes the first occurrence's position and the highest severity seen."""
+    order = {s: i for i, s in enumerate(SEVERITIES)}
+    out, seen = [], {}
+    for f in findings:
+        where = str(f.get("url") or f.get("page") or "").strip().lower().rstrip("/")
+        key = (f["category"], _norm(f["title"]), where)
+        if key in seen:
+            i = seen[key]
+            if order[f["severity"]] < order[out[i]["severity"]]:
+                out[i] = f
+            continue
+        seen[key] = len(out)
+        out.append(f)
+    return out, len(findings) - len(out)
 
 
 def assign_ids(findings):
@@ -234,15 +278,14 @@ def delta_text(cur, prev):
 
 # ─── Charts ──────────────────────────────────────────────────────────────────
 
-def write_charts(meta, stem, sc, findings, metrics):
-    os.makedirs(meta["chart_dir"], exist_ok=True)
+def build_charts(meta, stem, sc, findings, metrics):
+    """Build chart SVGs in memory. Returns (embeds by kind, {file name: svg}); nothing is written yet."""
     prefix = meta.get("chart_link_prefix", "attachments/charts")
-    made = {}
+    made, files = {}, {}
 
     def put(kind, svg):
         name = f"{stem}-{kind}.svg"
-        with open(os.path.join(meta["chart_dir"], name), "w", encoding="utf-8") as fh:
-            fh.write(svg)
+        files[name] = svg
         made[kind] = f"![[{prefix}/{name}]]"
 
     if sc["overall"] is not None:
@@ -258,7 +301,15 @@ def write_charts(meta, stem, sc, findings, metrics):
         put("effort", charts.effort_matrix(cells))
     if metrics:
         put("metrics", charts.metric_bars(metrics))
-    return made
+    return made, files
+
+
+def save_charts(meta, files):
+    """Write built charts; call only once the rendered report has passed every check."""
+    os.makedirs(meta["chart_dir"], exist_ok=True)
+    for name, svg in files.items():
+        with open(os.path.join(meta["chart_dir"], name), "w", encoding="utf-8") as fh:
+            fh.write(svg)
 
 
 # ─── Markdown table helpers ──────────────────────────────────────────────────
@@ -299,12 +350,13 @@ def render_audit(req):
     if errors:
         return {"ok": False, "errors": errors}
 
-    findings = assign_ids([dict(f) for f in data["findings"]])
+    findings, deduped = dedupe_findings([dict(f) for f in data["findings"]])
+    findings = assign_ids(findings)
     excluded = gap_categories(data)
     assessed = set(data["categories_assessed"]) | {f["category"] for f in findings}
     sc = score(findings, assessed, excluded)
     stem = f'{meta["slug"]}-{data["audit_type"]}-{meta["cycle"]}'
-    ch = write_charts(meta, stem, sc, findings, data.get("metrics") or [])
+    ch, chart_files = build_charts(meta, stem, sc, findings, data.get("metrics") or [])
     prev_cats = prev.get("categories") or {}
     passed = data.get("checks_passed") or []
     n_crit = sum(1 for f in findings if f["severity"] == "critical")
@@ -454,12 +506,13 @@ def render_audit(req):
     leak = lint_failure_language([("rendered report", md)])
     if leak:
         return {"ok": False, "errors": leak}
+    save_charts(meta, chart_files)
     rendered_findings = [{k: f[k] for k in ("id", "key", "title", "severity", "category", "effort", "plain_english", "business_impact") if k in f}
                          for f in findings]
     return {
         "ok": True, "errors": [], "markdown": md, "scores": sc,
         "data_gaps": data.get("data_gaps") or [], "excluded_categories": sorted(excluded),
-        "charts": list(ch.values()), "findings": rendered_findings,
+        "charts": list(ch.values()), "findings": rendered_findings, "deduped": deduped,
     }
 
 
@@ -496,7 +549,7 @@ def render_executive(req):
     sc = score(pooled, assessed, excluded)
     pooled.sort(key=lambda f: (order[f["severity"]], EFFORTS.index(f["effort"])))
     stem = f'{meta["slug"]}-executive-{meta["cycle"]}'
-    ch = write_charts(meta, stem, sc, pooled, [])
+    ch, chart_files = build_charts(meta, stem, sc, pooled, [])
     urgency = {"critical": "🔴 Urgent", "high": "🟠 Important", "medium": "🟡 Worth doing", "low": "🔵 Minor"}
 
     L = [f'# {meta["title"]}', ""]
@@ -573,20 +626,28 @@ def render_executive(req):
         errs.append(f'executive report contains internal/tool wording ("{m.group(0)}")')
     if errs:
         return {"ok": False, "errors": errs}
+    save_charts(meta, chart_files)
     return {"ok": True, "errors": [], "markdown": md, "scores": sc, "data_gaps": all_gaps,
             "excluded_categories": sorted(excluded), "charts": list(ch.values())}
 
 
 def main():
-    req = json.load(sys.stdin)
     try:
-        if req.get("mode") == "audit":
+        req = json.load(sys.stdin)
+        if not isinstance(req, dict):
+            out = {"ok": False, "errors": ["renderer error: request must be a JSON object"]}
+        elif req.get("mode") == "audit":
             out = render_audit(req)
         elif req.get("mode") == "executive":
             out = render_executive(req)
         else:
             out = {"ok": False, "errors": [f'unknown mode {req.get("mode")!r}']}
+    except json.JSONDecodeError as e:
+        out = {"ok": False, "errors": [f"renderer error: request is not valid JSON: {e}"]}
     except (KeyError, TypeError, ValueError) as e:
+        out = {"ok": False, "errors": [f"renderer error: {type(e).__name__}: {e}"]}
+    except Exception as e:  # never leak a traceback on stdout; the caller parses it as JSON
+        sys.stderr.write("".join(traceback.format_exc().splitlines(keepends=True)[-12:]))
         out = {"ok": False, "errors": [f"renderer error: {type(e).__name__}: {e}"]}
     json.dump(out, sys.stdout, ensure_ascii=False)
 

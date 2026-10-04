@@ -66,8 +66,9 @@ Generate LocalBusiness schema with:
 ## Tools
 
 - `google-apis` MCP: Search Console for local landing page data
-- `python-scripts` MCP: python_fetch_page, python_nlp_analyze
-- `vault` MCP: read/write local SEO audits, add_evidence/query_evidence
+- `crawlers` MCP: `crawlers_scrape` for landing and listing pages (see the routing table in seo-technical)
+- `python-scripts` MCP: `python_nlp_analyze` (entities and sentiment in review or page text)
+- `vault` MCP: read/write local SEO audits, vault_add_evidence/vault_query_evidence
 - Bash, WebFetch: direct API calls and research
 
 Record local findings with `vault_add_evidence(slug, {specialist_id: "seo-local", claim, provenance, confidence, source_paths, cost_usd?})`. Listings, reviews and map-pack ranks from your DataForSEO tools use `provenance: "dataforseo"` with the `raw_path`. Observations from WebSearch or manual GBP review use `provenance: "manual"` with confidence `low`/`medium`.
@@ -96,4 +97,4 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **You read:** seo-content's `audits/geo-baseline.md` for AI-search visibility. Don't call `llm_mentions_*` yourself. Use `keywords/keyword-map.md` to pick grid keywords.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

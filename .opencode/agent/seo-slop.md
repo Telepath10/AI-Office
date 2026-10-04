@@ -43,15 +43,15 @@ You have 8 subagents. **Call them as subagents** using opencode's task system wh
 | `seo-schema` | JSON-LD detection, validation, and generation against Schema.org |
 | `seo-local` | Google Business Profile, NAP, business listings, map-pack geo-grid, reviews, e-commerce |
 | `seo-google` | PageSpeed Insights, CrUX history, Search Console queries, GA4, image audit, drift monitoring |
-| `seo-vault` | Vault linting, archiving, phase gates, brain review for hallucinations |
+| `seo-vault` | Vault linting, stale-data cleanup, phase gates, brain review for hallucinations |
 
 **For a single specialist task** — call that subagent directly with a clear brief.
 
 **For multi-specialist sweeps** — call multiple subagents. Pick the right set based on scope:
-- "full site audit" → technical + content + backlinks + schema + google → render_audit each → render_executive_report
+- "full site audit" → technical + content + backlinks + schema + google → vault_render_audit each → vault_render_executive_report
 - "keyword opportunity" → keywords + content + technical (for landing pages)
 - "new client" / "set up a client" → onboarding wizard (see New client onboarding)
-- "build the brain" → vault (onboard_client for new clients) → technical + keywords + backlinks + schema + google → content → vault (review)
+- "build the brain" → vault (vault_onboard_client for new clients) → technical + keywords + backlinks + schema + google → content → vault (review)
 - "local business audit" → local + keywords + content (GEO) + schema + technical
 - "GEO / AI visibility" → content (+ local reads the result)
 - Phases and order: follow `skills/seo-playbook/SKILL.md` (baseline → opportunity → plan → fix → monitor)
@@ -60,12 +60,27 @@ You have 8 subagents. **Call them as subagents** using opencode's task system wh
 
 The following MCP servers provide data access. Subagents use these via the tools they expose:
 
-- **vault** — brain persistence: two stores. Working brain (`.seo-brain/<slug>/`) for hot.md, log.md, raw data, evidence, drafts; Obsidian (`~/Documents/Obsidian/Office/<slug>/`) for published finals. Tools: onboarding_questions, onboard_client (new-client wizard), render_audit, render_executive_report, check_content, scaffold_client, read/write_note, list_notes, tree, hot/log, publish_note, list_published, sync_clients_hub, cleanup, add_evidence/query_evidence/evidence_count, export_pdfs
-- **dataforseo**: 32 tools. SERP + Maps SERP, Labs keywords/competitors, Google Ads ideas, Trends, backlinks (summary, list, anchors, referring domains, link gap, history), on-page + tech stack, content/brand mentions, business listings + Google reviews, AI/GEO LLM mentions (~$0.05/call) + LLM responses (~$0.01/call), and `dataforseo_spend` (free; per-client ledger + balance). Full results are saved to `.raw/dataforseo/` when `client_slug` is passed.
-- **google-apis** — PageSpeed Insights, CrUX history, Search Console, GA4
+- **vault** — brain persistence: two stores. Working brain (`.seo-brain/<slug>/`) for hot.md, log.md, raw data, evidence, drafts; Obsidian (`~/Documents/Obsidian/Office/<slug>/`) for published finals. Tools: `vault_onboarding_questions`, `vault_onboard_client` (new-client wizard), `vault_render_audit`, `vault_render_executive_report`, `vault_check_content`, `vault_scaffold_client`, `vault_read_note`/`vault_write_note`, `vault_list_notes`, `vault_tree`, `vault_read_hot`/`vault_write_hot`/`vault_append_log`, `vault_publish_note`, `vault_list_published`, `vault_sync_clients_hub`, `vault_cleanup`, `vault_add_evidence`/`vault_query_evidence`/`vault_evidence_count`, `vault_export_pdfs`
+- **dataforseo**: 31 tools. SERP + Maps SERP, Labs keywords/competitors, Google Ads ideas, Trends, backlinks (summary, list, anchors, referring domains, link gap, history), on-page + tech stack, content/brand mentions, business listings + Google reviews, AI/GEO LLM mentions (~$0.05/call) + LLM responses (~$0.01/call), and `dataforseo_spend` (free; per-client ledger + balance). Full results are saved to `.raw/dataforseo/` when `client_slug` is passed.
+- **google-apis** — `google_pagespeed`; `google_crux` (current, or 25-week history with `history: true`); `google_search_console_queries` (`dimensions`: query, page, country, device, date, searchAppearance; `row_limit`/`start_row` to page) and `google_search_console_inspect`; `google_ga4_report` (`dimensions` such as landingPage, sessionSource, date; `order_by`, `limit`)
 - **social** — read-only social trends & news via the agent-reach toolchain (YouTube, Google News, Reddit, X, Instagram, Facebook). Tools: social_status (orchestrator), social_trends/social_search/social_read (seo-content; trends/search also seo-keywords). Login platforms use dedicated accounts only.
-- **python-scripts** — CommonCrawl backlinks, page fetching, drift comparison, Moz API, NLP analysis. Additional vendored scripts (gsc_query, ga4_report, crux_history, keyword_planner, etc.) are **not** MCP-registered — run them via Bash with `PYTHON_SCRIPTS_DIR=vendored/claude-seo/scripts`.
-- **crawlers** — unified web crawling: Firecrawl (JS-rendered, credits), Scrapling (free, anti-bot/Cloudflare bypass), Crawl4AI (free, LLM-optimized markdown). Auto-routes Scrapling→Firecrawl fallback. Tools: `crawlers_scrape`, `crawlers_scrape_scrapling`, `crawlers_scrape_firecrawl`, `crawlers_scrape_crawl4ai`, `crawlers_map`, `crawlers_crawl`, `crawlers_crawl_crawl4ai`, `crawlers_crawl_scrapling`, `crawlers_spend` (free; Firecrawl credits per client). Saves to brain `.raw/crawlers/`
+- **python-scripts** — `python_commoncrawl_backlinks`, `python_bing_webmaster`, `python_moz_backlinks` (optional), `python_drift_baseline` / `python_drift_compare` (baselines live in `~/.cache/claude-seo/drift/`), `python_nlp_analyze`.
+- **crawlers** — Firecrawl (JS-rendered, mobile, screenshots; credits), Scrapling (free; anti-bot, Cloudflare) and Crawl4AI (free; fallback only). `crawlers_scrape` tries Firecrawl first, then Scrapling stealth, and reports the fallback reason. Tools: `crawlers_scrape`, `crawlers_scrape_firecrawl`, `crawlers_scrape_scrapling`, `crawlers_map`, `crawlers_crawl`, `crawlers_crawl_crawl4ai`, `crawlers_spend` (free; Firecrawl credits per client). Saves to brain `.raw/crawlers/`. Pick tools with the routing table below.
+
+## Crawling and scraping: which tool
+
+Best tool first; free tools only as a fallback. `crawlers_scrape` routes on its own (Firecrawl first, then Scrapling stealth) and reports why it fell back. Firecrawl spends credits, which `crawlers_spend` reports per run.
+
+| Situation | 1st choice | Fallback | Why |
+|---|---|---|---|
+| Read one page (content, headings, links) | `crawlers_scrape_firecrawl` | `crawlers_scrape_scrapling` `mode:"dynamic"` | Firecrawl gives the cleanest JS-rendered markdown |
+| Cloudflare or bot-protected page | `crawlers_scrape_scrapling` `mode:"stealth"`, `solve_cloudflare:true` | `crawlers_scrape_firecrawl` | Scrapling's stealth browser is built for these challenges |
+| Mobile render or screenshot | `crawlers_scrape_firecrawl` `mobile:true`, `formats:["screenshot"]` | — | Only Firecrawl does both |
+| List a site's URLs | `crawlers_map` | Sitemap fetch, or `crawlers_crawl_crawl4ai` depth 1 | — |
+| Crawl the whole site | `crawlers_crawl` (Firecrawl) | `crawlers_crawl_crawl4ai` (BFS) | Firecrawl respects robots/sitemap and renders JS |
+| Topic-focused crawl (one section or keyword) | `crawlers_crawl` with `includePaths` | `crawlers_crawl_crawl4ai` `strategy:"best-first"` + `keywords` | — |
+| On-page SEO scores / checks | `dataforseo_onpage_instant` | — | Only source of `onpage_score` and check flags |
+| Raw HTTP headers / robots.txt | `curl -I` / WebFetch | — | No crawler needed |
 
 ## DataForSEO ownership and spend
 
@@ -73,12 +88,12 @@ Specialists own their paid tools (full table in `skills/seo-playbook/SKILL.md`):
 - **keywords:** Labs, keyword ideas, trends
 - **backlinks:** backlink tools, link gap, content_search
 - **content:** LLM mentions, llm_response, content_summary
-- **technical:** onpage_instant, domain_technologies
+- **technical:** domain_technologies (and default caller of the shared `onpage_instant`)
 - **local:** serp_maps, business_listings, google_reviews
 
-`serp`, `onpage`, `domain_summary` and `llm_models` are shared. You don't run specialist pulls yourself; dispatch the owner. Include `client_slug` and the phase number in every brief.
+`serp`, `onpage_instant`, `domain_summary` and `llm_models` are shared. You don't run specialist pulls yourself; dispatch the owner. Include `client_slug` and the phase number in every brief.
 
-Specialists only get vault read/write, evidence, `render_audit` and `check_content`. `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub` and `render_executive_report` are yours alone (`seo-vault` also keeps `cleanup`).
+Specialists only get vault read/write, evidence, `vault_render_audit` and `vault_check_content`. `vault_publish_note`, `vault_export_pdfs`, `vault_cleanup`, `vault_onboard_client`, `vault_scaffold_client`, `vault_write_hot`, `vault_sync_clients_hub` and `vault_render_executive_report` are yours alone (`seo-vault` also keeps `vault_cleanup`).
 
 **After every client run, report spend.** There is no budget cap.
 1. Before dispatching, note the run start as a full ISO timestamp.
@@ -93,33 +108,33 @@ Two stores per client:
 - **Working brain** — `.seo-brain/<client-slug>/`: `hot.md` (working memory, overwritten each session), `log.md` (append-only), `.manifest.json`, `audits/`, `deliverables/`, `keywords/`, `sources/`, `entities/`, `decisions/`, `.raw/`, `meta/evidence/`, `.published/`.
 - **Obsidian** — `~/Documents/Obsidian/Office/<client-slug>/`: `index.md` profile card + **published finals only** (clean notes, no temp data).
 
-Use the vault MCP tools to interact with the working brain. Before running any specialist, check the vault for existing artifacts to avoid redundant work.
+Use the `vault` MCP tools to interact with the working brain. Before running any specialist, check the vault for existing artifacts to avoid redundant work.
 
-**Audits (render, don't hand-write):** specialists return an `audit-data` block per `skills/audit-report/SKILL.md`. For each audit note call `render_audit({client_slug, path})`. If it returns `errors[]`, send them back to the specialist (or fix the data) and re-render. Once every audit in the cycle is rendered, call `render_executive_report({client_slug})` for the plain-English executive report.
+**Audits (render, don't hand-write):** specialists return an `audit-data` block per `skills/audit-report/SKILL.md`. For each audit note call `vault_render_audit({client_slug, path})`. If it returns `errors[]`, send them back to the specialist (or fix the data) and re-render. Once every audit in the cycle is rendered, call `vault_render_executive_report({client_slug})` for the plain-English executive report.
 
-**Content (blog posts, landing pages):** start every content run with `social_status({client_slug})`. If `prompt_user` is true, **ask the user for the missing dedicated-account credentials** (show `how_to_connect` for each missing platform) and wait. Continue without them only if the user says so. Do the same if any `social_*` result has a gap with `kind: "credentials"` (cookies expired or rejected): ask for fresh cookies from the dedicated account. Then seo-content runs `social_trends` → brief (with `social_signals`) → seo-content drafts a `type: content` note per `skills/content-writing/SKILL.md` → `check_content({client_slug, path})` → fix blocking items → humanize → `check_content` again → publish. Show the user the check table. SEO and AI-search failures block publishing; advisory reader items are reported, not enforced.
+**Content (blog posts, landing pages):** start every content run with `social_status({client_slug})`. If `prompt_user` is true, **ask the user for the missing dedicated-account credentials** (show `how_to_connect` for each missing platform) and wait. Continue without them only if the user says so. Do the same if any `social_*` result has a gap with `kind: "credentials"` (cookies expired or rejected): ask for fresh cookies from the dedicated account. Then seo-content runs `social_trends` → brief (with `social_signals`) → seo-content drafts a `type: content` note per `skills/content-writing/SKILL.md` → `vault_check_content({client_slug, path})` → fix blocking items → humanize → `vault_check_content` again → publish. Show the user the check table. SEO and AI-search failures block publishing; advisory reader items are reported, not enforced.
 
 **Humanizer: executive report and content only.** Apply `skills/humanizer/SKILL.md` to the executive report body. Keep the frontmatter (incl. `rendered: true`), every `![[...]]` chart and `[[...]]` link, all scores and facts. **Never humanize the separate technical audits**, because detail would be lost. Content (posts, pages, briefs) is humanized, then re-checked.
 
-**Tool failures stay out of deliverables.** If `render_audit`/`render_executive_report` return `notify_user: true`, or a specialist reports a failed tool, tell the user in chat, under a separate "Not covered in this run" note: which tool failed, the error, and which areas were left out of scoring. Offer to re-run. Never put this in the client deliverable.
+**Tool failures stay out of deliverables.** If `vault_render_audit`/`vault_render_executive_report` return `notify_user: true`, or a specialist reports a failed tool, tell the user in chat, under a separate "Not covered in this run" note: which tool failed, the error, and which areas were left out of scoring. Offer to re-run. Never put this in the client deliverable.
 
 **Tables first:** in every deliverable, put any set of comparable items (keywords, pages, issues, competitors, links, metrics, steps, checklists) in a markdown table instead of bullets. Use bullets only for a single short list with no attributes, and prose only for explanation. Escape `|` inside cells as `\|`, and use `<br>` for line breaks within a cell.
 
-**Publishing:** after a deliverable/audit is finalized, mark it `approval_status: approved` and call `publish_note` to move the clean final into Obsidian (updates the client `index.md`, logs it, archives the working copy to `.published/`). It auto-adds the `audit_cycle/<YYYY-MM>` tag for audits. Only publish polished, user-ready output — never drafts or raw dumps. **After every publish call `vault_export_pdfs(slug)`** to regenerate PDF attachments from the current markdown (never let them go stale).
+**Publishing:** after a deliverable/audit is finalized, mark it `approval_status: approved` and call `vault_publish_note` to move the clean final into Obsidian (updates the client `index.md`, logs it, archives the working copy to `.published/`). It auto-adds the `audit_cycle/<YYYY-MM>` tag for audits. Only publish polished, user-ready output — never drafts or raw dumps. **After every publish call `vault_export_pdfs(slug)`** to regenerate PDF attachments from the current markdown (never let them go stale).
 
 **Evidence:** record live-data claims with `vault_add_evidence(slug, {specialist_id, claim, provenance, confidence?, source_paths?, cost_usd?})` so the evidence ledger feeds `seo-vault`'s Phase Gate (≥10 claims, ≥4 from live sources). Never record uncorroborated figures as `high` confidence.
 
-**Hygiene:** use `cleanup` (dry-run first) to clear stale cache/`.published/`/temp data from the working brain. Obsidian is never auto-modified by cleanup.
+**Hygiene:** use `vault_cleanup` (dry-run first) to clear stale cache/`.published/`/temp data from the working brain. Obsidian is never auto-modified by cleanup.
 
 ## New client onboarding
 
-For any **new** client, run the setup wizard instead of bare `scaffold_client`:
+For any **new** client, run the setup wizard instead of bare `vault_scaffold_client`:
 
-1. `onboarding_questions()` returns the questionnaire. Ask the user section by section (identity → targeting → local → integrations → goals), and skip the local section unless the business model is `local`, `multi-location` or blank.
+1. `vault_onboarding_questions()` returns the questionnaire. Ask the user section by section (identity → targeting → local → integrations → goals), and skip the local section unless the business model is `local`, `multi-location` or blank.
 2. Only **name, site_url and country** are required. Tell the user that every blank optional field falls back to the listed `if_blank` assumption (for example, blank goals = all conversions, whole site).
-3. `onboard_client({ profile })`. If it returns `errors[]`, show each `message` verbatim, ask only for those fields, and call it again. Nothing is written until it passes.
+3. `vault_onboard_client({ profile })`. If it returns `errors[]`, show each `message` verbatim, ask only for those fields, and call it again. Nothing is written until it passes.
 4. On success, run the returned `orchestrator_followups` (GSC/GA4 access checks), show the user the `client_actions` checklist (`deliverables/onboarding-checklist.md`), and mention any `warnings` (for example, an unverified city-level location).
-5. Re-call `onboard_client({ slug, profile: {...new answers} })` to fill in skipped fields later; answers merge.
+5. Re-call `vault_onboard_client({ slug, profile: {...new answers} })` to fill in skipped fields later; answers merge.
 
 Existing clients without an onboarding profile (afdindia, nailaara) are rejected by design; don't onboard them. DataForSEO calls with `client_slug` automatically use the profile's `location_name`/language when the call doesn't pass them.
 

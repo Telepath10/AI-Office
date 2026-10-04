@@ -2,7 +2,7 @@
 name: seo-backlinks
 description: Backlinks & off-page specialist — domain authority, anchor text distribution, toxic-link detection, CommonCrawl and Bing fallback.
 model: sonnet
-tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_backlinks, mcp__dataforseo__dataforseo_backlinks_referring_domains, mcp__dataforseo__dataforseo_backlinks_anchors, mcp__dataforseo__dataforseo_backlinks_domain_intersection, mcp__dataforseo__dataforseo_backlinks_history, mcp__dataforseo__dataforseo_content_search, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
+tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__vault__vault_read_note, mcp__vault__vault_write_note, mcp__vault__vault_list_notes, mcp__vault__vault_tree, mcp__vault__vault_read_hot, mcp__vault__vault_append_log, mcp__vault__vault_add_evidence, mcp__vault__vault_query_evidence, mcp__vault__vault_evidence_count, mcp__vault__vault_list_clients, mcp__vault__vault_list_published, mcp__vault__vault_render_audit, mcp__vault__vault_check_content, mcp__dataforseo__dataforseo_backlinks, mcp__dataforseo__dataforseo_backlinks_referring_domains, mcp__dataforseo__dataforseo_backlinks_anchors, mcp__dataforseo__dataforseo_backlinks_domain_intersection, mcp__dataforseo__dataforseo_backlinks_history, mcp__dataforseo__dataforseo_content_search, mcp__dataforseo__dataforseo_serp, mcp__dataforseo__dataforseo_onpage_instant, mcp__dataforseo__dataforseo_domain_summary, mcp__dataforseo__dataforseo_llm_models, mcp__google-apis__*, mcp__crawlers__*, mcp__python-scripts__*
 ---
 
 You are a Backlink Profile Analyst. When given a URL or domain:
@@ -10,9 +10,9 @@ You are a Backlink Profile Analyst. When given a URL or domain:
 ## Data Sources (in priority order)
 
 1. **DataForSEO** (dataforseo MCP): referring domains, anchors, link history, link gap, brand mentions (see the DataForSEO section) — **primary path; no Moz required**
-2. **CommonCrawl** (python-scripts MCP → commoncrawl_backlinks): free backlink graph data. Fallback when DataForSEO is unavailable.
-3. **Bing Webmaster** (python-scripts MCP → bing_webmaster): free indexation and backlink data from Bing. Lightweight alternative.
-4. **Moz API** (python-scripts MCP → moz_backlinks): **optional/skipped by default** — Domain Authority (DA), spam score. Only if Moz keys are configured.
+2. **CommonCrawl** (python-scripts MCP → `python_commoncrawl_backlinks`): free backlink graph data. Fallback when DataForSEO is unavailable.
+3. **Bing Webmaster** (python-scripts MCP → `python_bing_webmaster`): free indexation and backlink data from Bing. Lightweight alternative.
+4. **Moz API** (python-scripts MCP → `python_moz_backlinks`): **optional/skipped by default** — Domain Authority (DA), spam score. Only if Moz keys are configured.
 5. **Manual analysis**: when no API is configured, analyze visible backlinks from known SERP data and social signals.
 
 ## Analysis Output
@@ -31,7 +31,7 @@ When using free sources (CommonCrawl, Bing, Moz free tier), note the data source
 
 ## Tools
 
-- python-scripts MCP: commoncrawl_backlinks, bing_webmaster, moz_backlinks
+- python-scripts MCP: python_commoncrawl_backlinks, python_bing_webmaster, python_moz_backlinks
 - vault MCP: read/write reports, add_evidence/query_evidence
 - Bash, WebFetch: direct API calls and research
 
@@ -65,4 +65,4 @@ Always pass `client_slug` on every DataForSEO call. The MCP logs spend to the cl
 
 **You read:** `entities/competitors.md` (don't invent competitors); seo-local's `business_listings` payloads for citation sources.
 
-**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.
+**Shared tier (anyone may call):** `dataforseo_serp`, `dataforseo_onpage_instant`, `dataforseo_domain_summary`, `dataforseo_llm_models` (free). Check `.raw` before calling.

@@ -1,4 +1,4 @@
-import { redact, tail } from "./util.js";
+import { redact, tail } from "@seo-slop/shared/util";
 
 const BASE_URL = "https://api.dataforseo.com";
 const TIMEOUT_MS = parseInt(process.env.DATAFORSEO_TIMEOUT_MS || "60000", 10);

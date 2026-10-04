@@ -2,5 +2,9 @@
 #   python3 -m venv vendored/agent-reach/.venv && vendored/agent-reach/.venv/bin/pip install -r vendored/agent-reach/requirements.txt
 #   OpenCLI (Instagram/Facebook): npm install --prefix vendored/agent-reach @jackwener/opencli@1.8.8
 agent-reach @ https://github.com/Panniantong/agent-reach/archive/refs/tags/v1.5.0.zip
+# Known issue (2026-10): twitter-cli 0.8.5 search is broken upstream (X homepage change;
+# jackwener/twitter-cli #88-#93, unmerged). Fallbacks in social_fetch.py: OpenCLI X search
+# (dedicated Chrome profile, verified working 2026-10-02) -> user-posts of an x_handles watchlist.
+# Upgrade this pin once a fixed release ships.
 twitter-cli==0.8.5
 rdt-cli==0.4.1

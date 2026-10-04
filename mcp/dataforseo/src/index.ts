@@ -1,4 +1,4 @@
-import "./env.js"; // must stay first: repo-root cwd + .env loading
+import "@seo-slop/shared/env"; // must stay first: repo-root cwd + .env loading
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -11,7 +11,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { clientGeo, workingRoot } from "./config.js";
 import { isClient, recordSpend } from "./spend.js";
-import { redact } from "./util.js";
+import { fitResponse, redact } from "@seo-slop/shared/util";
 import type { ToolDef } from "./types.js";
 import { backlinkTools } from "./tools/backlinks.js";
 import { competitorTools } from "./tools/competitors.js";
@@ -186,8 +186,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       status: s.status,
       ok: s.ok,
     });
+    // Cap the inline text. saveRaw already wrote the full payload, so fitResponse only
+    // reports that file (no second write); spend/evidence fields stay at the top level.
+    const text = await fitResponse(JSON.stringify(s.body), name, slug, ".raw/dataforseo", {
+      saved: raw,
+      keep: {
+        endpoint: s.body.endpoint,
+        cost_usd: s.body.cost_usd,
+        status_code: s.body.status_code,
+        ...(s.error ? { error: s.error } : {}),
+      },
+    });
     return {
-      content: [{ type: "text", text: JSON.stringify(s.body) }],
+      content: [{ type: "text", text }],
       ...(s.ok ? {} : { isError: true }),
     };
   } catch (error: any) {

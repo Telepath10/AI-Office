@@ -5,31 +5,13 @@ const toUrl = (t: string) => (/^https?:\/\//i.test(t) ? t : `https://${t}`);
 
 export const technicalTools: ToolDef[] = [
   {
-    name: "dataforseo_onpage",
-    description:
-      "On-page audit of a single page (on_page/instant_pages): meta, headings, content stats, links, images, page timing, onpage_score and check flags. Accepts a domain (audits the homepage) or URL.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        target: { type: "string", description: "Domain or full URL." },
-        enable_javascript: { type: "boolean", description: "Render JS before auditing. Default false." },
-      },
-      required: ["target"],
-    },
-    run: (a) =>
-      live("/v3/on_page/instant_pages", {
-        url: toUrl(String(need(a, "target"))),
-        enable_javascript: a?.enable_javascript === true,
-      }),
-  },
-  {
     name: "dataforseo_onpage_instant",
     description:
-      "Full single-page audit (on_page/instant_pages) with options: JS rendering, browser rendering (for CWV-like timing), resource loading, custom user agent.",
+      "The DataForSEO on-page audit tool for a single page (on_page/instant_pages): onpage_score, check flags (meta, headings, duplicate/missing tags, broken links/resources, HTTPS, etc.), content stats, links, images and page timing. Only source of onpage_score and check flags. Accepts a URL or bare domain (audits the homepage). Options: JS rendering, browser rendering (CWV-like timing), resource loading, custom user agent.",
     inputSchema: {
       type: "object",
       properties: {
-        url: { type: "string" },
+        url: { type: "string", description: "Full URL, or a domain (audits the homepage)." },
         enable_javascript: { type: "boolean", description: "Default false." },
         enable_browser_rendering: {
           type: "boolean",
@@ -42,7 +24,9 @@ export const technicalTools: ToolDef[] = [
       required: ["url"],
     },
     run: (a) => {
-      const task: Record<string, unknown> = { url: toUrl(String(need(a, "url"))) };
+      // `target` accepted as an alias for callers of the removed dataforseo_onpage tool.
+      const target = a?.url ?? a?.target ?? need(a, "url");
+      const task: Record<string, unknown> = { url: toUrl(String(target)) };
       for (const k of ["enable_javascript", "enable_browser_rendering", "load_resources", "custom_user_agent", "accept_language"]) {
         if (a?.[k] !== undefined) task[k] = a[k];
       }

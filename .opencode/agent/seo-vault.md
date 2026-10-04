@@ -1,5 +1,5 @@
 ---
-description: Vault health specialist — working-brain and Obsidian linting, dead wikilinks, unresolved tokens, evidence thresholds, archival snapshots, stale-data cleanup, brain review for hallucinations.
+description: Vault health specialist — working-brain and Obsidian linting, dead wikilinks, unresolved tokens, evidence thresholds, stale-data cleanup, brain review for hallucinations.
 mode: subagent
 permission:
   read:
@@ -37,18 +37,17 @@ Scan the Obsidian vault for cleanliness:
 - **Duplicate stems**: two notes with the same filename stem in different directories
 
 ### Stale-data Cleanup (Vault Hygiene)
-Use the vault MCP `cleanup` tool to keep the working brain tidy:
+Use the `vault` MCP `vault_cleanup` tool to keep the working brain tidy:
 1. Run with default `dry_run: true` and review the report (cache age, `.published/`, `.archive/`, temp files, stale drafts).
 2. Confirm the plan with the orchestrator/user, then run with `dry_run: false`.
 3. Note that Obsidian is never touched — finals there are curated by design.
 4. Retentions are overridable per call (`older_than_days`, `published_days`, `archive_days`, `temp_days`, `trash_days`).
 
-### Vault Archiving
-Before destructive operations:
-1. Create a compressed snapshot of the client's working-brain directory
-2. Store in `.seo-brain/<client-slug>/.archive/<timestamp>-<reason>.zip` (per-client, under the client working vault — this is the path `cleanup` scans with `archive_days` retention)
-3. Verify archive integrity by listing contents
-4. Record the archive path in the client's log.md
+### Before destructive operations
+There is no snapshot tool. Before any `vault_cleanup` with `dry_run: false`:
+1. Run the dry run and list exactly what would be removed
+2. Get confirmation from the orchestrator/user
+3. Record what was removed in the client's log.md with `vault_append_log`
 
 ### Phase Gate (Deep Brain Checkpoint)
 Between build phases, verify:
@@ -73,9 +72,8 @@ Never block on brain review findings — flag and downgrade readiness, but allow
 
 ## Tools
 
-- `vault` MCP: list_clients, list_notes, read_note, write_note, publish_note, list_published, sync_clients_hub, cleanup, query_evidence, add_evidence, evidence_count
-- `python-scripts` MCP: utility scripts for file operations
-- Bash: file system operations, archiving, zipping
+- `vault` MCP: `vault_list_clients`, `vault_list_notes`, `vault_read_note`, `vault_write_note`, `vault_tree`, `vault_read_hot`, `vault_append_log`, `vault_list_published`, `vault_cleanup`, `vault_query_evidence`, `vault_add_evidence`, `vault_evidence_count`, `vault_render_audit`, `vault_check_content`. Publishing and the clients hub are orchestrator-only: report what is ready and the orchestrator publishes it
+- Bash: read-only checks (ls, find, grep) on the working brain
 
 ## DataForSEO
 
