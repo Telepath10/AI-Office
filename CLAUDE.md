@@ -14,7 +14,7 @@ Either harness works if the other is deleted. Nothing in one harness’s config 
 - Node >= 22, pnpm
 - `pnpm build` once (builds `mcp/*/dist` for both harnesses)
 - `.env` with API keys (copy from `.env.example`). Each MCP server loads it on startup and runs from the repo root, so `claude` works without the launcher; variables already exported (e.g. by `start-claude.sh`) win.
-- Python venvs under `vendored/` (see `.env.example`)
+- Python venvs: `bash scripts/setup-venvs.sh` (4 venvs; rebuild after a Homebrew Python upgrade)
 - Google ADC for Search Console/GA4 (needs the GSC + Analytics scopes and your own Desktop OAuth client; gcloud's built-in client gets "This app is blocked"): `gcloud auth application-default login --client-id-file="$HOME/.config/gcloud/seo-office-oauth-client.json" --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly,https://www.googleapis.com/auth/analytics.readonly`
 
 ## Claude Code session

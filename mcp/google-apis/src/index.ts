@@ -5,6 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { createSign } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -359,16 +360,120 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 let tokenCache: { token: string; expires: number } | undefined;
-const TOKEN_TTL_MS = 50 * 60 * 1000;
+
+const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const SA_SCOPES =
+  "https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/cloud-platform";
+const DEFAULT_EXPIRES_IN = 3600;
+const GCLOUD_EXPIRES_IN = 3000;
+
+interface AccessToken {
+  token: string;
+  expiresIn: number;
+}
 
 async function getAccessToken(): Promise<string> {
   if (tokenCache && tokenCache.expires > Date.now()) return tokenCache.token;
-  const token = await fetchAccessToken();
-  tokenCache = { token, expires: Date.now() + TOKEN_TTL_MS };
+  const { token, expiresIn } = await fetchAccessToken();
+  tokenCache = { token, expires: Date.now() + Math.max(0, expiresIn - 60) * 1000 };
   return token;
 }
 
-async function fetchAccessToken(): Promise<string> {
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0;
+}
+
+function base64url(input: string | Buffer): string {
+  return Buffer.from(input).toString("base64url");
+}
+
+// redact() plus exact removal of credential values that are not env vars.
+function scrub(text: string, secrets: string[]): string {
+  let out = String(text ?? "");
+  for (const v of secrets) if (v) out = out.split(v).join("[REDACTED]");
+  return redact(out);
+}
+
+async function exchangeToken(
+  url: string,
+  body: URLSearchParams,
+  label: string,
+  secrets: string[]
+): Promise<AccessToken> {
+  let data: unknown;
+  try {
+    data = await fetchJson(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+  } catch (err) {
+    throw new Error(`ADC ${label} token exchange failed: ${scrub(err instanceof Error ? err.message : String(err), secrets)}`);
+  }
+  const rec = (data ?? {}) as { access_token?: unknown; expires_in?: unknown };
+  if (!isNonEmptyString(rec.access_token)) {
+    throw new Error(`ADC ${label} token exchange failed: response had no access_token`);
+  }
+  const exp = Number(rec.expires_in);
+  return { token: rec.access_token, expiresIn: Number.isFinite(exp) && exp > 0 ? exp : DEFAULT_EXPIRES_IN };
+}
+
+async function fetchAccessToken(): Promise<AccessToken> {
+  let creds: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(adcPath(), "utf8"));
+    if (parsed && typeof parsed === "object") creds = parsed as Record<string, unknown>;
+  } catch {
+    creds = undefined;
+  }
+
+  if (
+    creds?.type === "authorized_user" &&
+    isNonEmptyString(creds.client_id) &&
+    isNonEmptyString(creds.client_secret) &&
+    isNonEmptyString(creds.refresh_token)
+  ) {
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      refresh_token: creds.refresh_token,
+    });
+    return exchangeToken(OAUTH_TOKEN_URL, body, "authorized_user", [creds.client_secret, creds.refresh_token]);
+  }
+
+  if (
+    creds?.type === "service_account" &&
+    isNonEmptyString(creds.client_email) &&
+    isNonEmptyString(creds.private_key)
+  ) {
+    const aud = isNonEmptyString(creds.token_uri) ? creds.token_uri : OAUTH_TOKEN_URL;
+    const iat = Math.floor(Date.now() / 1000);
+    const unsigned =
+      base64url(JSON.stringify({ alg: "RS256", typ: "JWT" })) +
+      "." +
+      base64url(JSON.stringify({ iss: creds.client_email, scope: SA_SCOPES, aud, iat, exp: iat + 3600 }));
+    let signature: string;
+    try {
+      const signer = createSign("RSA-SHA256");
+      signer.update(unsigned);
+      signer.end();
+      signature = signer.sign(creds.private_key).toString("base64url");
+    } catch {
+      throw new Error("ADC service_account token failed: could not sign JWT with private_key (check the credentials file)");
+    }
+    const jwt = `${unsigned}.${signature}`;
+    const body = new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    });
+    return exchangeToken(aud, body, "service_account", [creds.private_key, jwt, signature]);
+  }
+
+  return { token: await gcloudAccessToken(), expiresIn: GCLOUD_EXPIRES_IN };
+}
+
+async function gcloudAccessToken(): Promise<string> {
   const { spawn } = await import("node:child_process");
   return new Promise((resolve, reject) => {
     const child = spawn("gcloud", ["auth", "application-default", "print-access-token"], {

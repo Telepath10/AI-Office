@@ -41,6 +41,9 @@ err()  { FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 LOG_LINES=""
 
+# venv python actually runs (catches venvs whose base python was removed by brew upgrade)
+venv_py_ok() { [ -x "$1" ] && "$1" --version >/dev/null 2>&1; }
+
 # ─── env loading ─────────────────────────────────────────────────────────────
 load_env() {
   [ -f "$ENV_FILE" ] || return
@@ -145,6 +148,19 @@ if [ -n "${CRAWLERS_PYTHON_BIN:-}" ]; then
 else
   WARN "CRAWLERS_PYTHON_BIN — not set (crawlers MCP optional)"; wrn
 fi
+if venv_py_ok "$ROOT/vendored/crawlers/.venv/bin/python"; then
+  PASS "crawlers venv — $("$ROOT/vendored/crawlers/.venv/bin/python" --version 2>&1)"; ok
+else
+  WARN "crawlers venv — missing or broken (bash scripts/setup-venvs.sh crawlers)"; wrn
+fi
+PW_DIR="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}"
+pw_chromium=""
+for d in "$PW_DIR"/chromium-*; do [ -d "$d" ] && pw_chromium="$d"; done
+if [ -n "$pw_chromium" ]; then
+  PASS "Playwright Chromium — $(basename "$pw_chromium")"; ok
+else
+  WARN "Playwright Chromium — not found in $PW_DIR (bash scripts/setup-venvs.sh crawlers)"; wrn
+fi
 if [ -n "${CRAWLERS_SCRIPTS_DIR:-}" ]; then
   crawlers_dir="$CRAWLERS_SCRIPTS_DIR"
   case "$crawlers_dir" in /*) ;; *) crawlers_dir="$ROOT/$crawlers_dir" ;; esac
@@ -165,10 +181,15 @@ fi
 
 # Social trends & news (social MCP): dedicated accounts only. Missing credentials are a reminder, not a failure.
 AR_PY="$ROOT/vendored/agent-reach/.venv/bin/python"
-if [ -x "$AR_PY" ] && [ -x "$ROOT/vendored/agent-reach/.venv/bin/yt-dlp" ]; then
+if venv_py_ok "$AR_PY" && [ -x "$ROOT/vendored/agent-reach/.venv/bin/yt-dlp" ]; then
   PASS "agent-reach toolchain — installed (YouTube + Google News ready)"; ok
 else
-  WARN "agent-reach toolchain — missing (python3 -m venv vendored/agent-reach/.venv && vendored/agent-reach/.venv/bin/pip install -r vendored/agent-reach/requirements.txt)"; wrn
+  WARN "agent-reach toolchain — missing or broken (bash scripts/setup-venvs.sh agent-reach)"; wrn
+fi
+if [ -x "$ROOT/vendored/agent-reach/node_modules/.bin/opencli" ]; then
+  PASS "opencli — installed (Instagram/Facebook bridge)"; ok
+else
+  WARN "opencli — missing (bash scripts/setup-venvs.sh agent-reach)"; wrn
 fi
 SOCIAL_MISSING=""
 { [ -n "${TWITTER_AUTH_TOKEN:-}" ] && [ -n "${TWITTER_CT0:-}" ]; } && { PASS "X/Twitter — dedicated account cookies set"; ok; } || SOCIAL_MISSING="$SOCIAL_MISSING X(TWITTER_AUTH_TOKEN/TWITTER_CT0)"
@@ -380,14 +401,14 @@ done
 
 # python venv + required packages
 PYBIN="${PYTHON_BIN:-$ROOT/vendored/claude-seo/.venv/bin/python}"
-if [ -x "$PYBIN" ]; then
+if venv_py_ok "$PYBIN"; then
   PASS "python venv — $("$PYBIN" --version 2>&1)"
   ok
   for pkg in requests bs4 lxml; do
     if "$PYBIN" -c "import $pkg" 2>/dev/null; then
       PASS "venv has '$pkg'"; ok
     else
-      FAIL "venv missing '$pkg' (pip install -r vendored/claude-seo/requirements.txt)"; err
+      FAIL "venv missing '$pkg' (bash scripts/setup-venvs.sh claude-seo)"; err
     fi
   done
   for pkg in matplotlib numpy; do
@@ -398,18 +419,19 @@ if [ -x "$PYBIN" ]; then
     fi
   done
 else
-  FAIL "python venv missing at $PYBIN (create: python3 -m venv vendored/claude-seo/.venv && vendored/claude-seo/.venv/bin/pip install -r vendored/claude-seo/requirements.txt)"; err
+  FAIL "python venv missing or broken at $PYBIN (bash scripts/setup-venvs.sh claude-seo)"; err
 fi
 
 # root .venv for the markdown→PDF pipeline (md2pdf.py / regenerate_pdfs.py)
 ROOT_PY="$ROOT/.venv/bin/python"
-if [ -x "$ROOT_PY" ]; then
+if venv_py_ok "$ROOT_PY"; then
   PDF_OK=1
   for pkg in markdown weasyprint; do
     if "$ROOT_PY" -c "import $pkg" 2>/dev/null; then
       PASS "pdf venv has '$pkg'"; ok
     else
-      FAIL "pdf venv missing '$pkg' (pip install -r scripts/requirements.txt)"; err; PDF_OK=0
+      FAIL "pdf venv missing '$pkg' (bash scripts/setup-venvs.sh pdf)"; err; PDF_OK=0
+      [ "$pkg" = "weasyprint" ] && { WARN "weasyprint needs system libraries if import still fails after setup (brew install pango cairo glib harfbuzz)"; wrn; }
     fi
   done
   for f in scripts/regenerate_pdfs.py scripts/md2pdf.py; do
@@ -421,7 +443,7 @@ if [ -x "$ROOT_PY" ]; then
   done
   [ "$PDF_OK" -eq 1 ] && INFO "pdf pipeline ready (vault_export_pdfs + regenerate_pdfs.py)"
 else
-  FAIL "pdf venv missing at $ROOT/.venv (create: python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt)"; err
+  FAIL "pdf venv missing or broken at $ROOT/.venv (bash scripts/setup-venvs.sh pdf)"; err
 fi
 
 # gcloud (GSC/GA4)
@@ -436,6 +458,11 @@ if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ] && [ "${GOOGLE_APPLICATION_CREDE
   PASS "Google ADC — file present"; ok
 else
   WARN "Google ADC — no valid credentials file (GSC/GA4 blocked until gcloud login)"; wrn
+fi
+
+# claude-seo user config (optional)
+if [ ! -d "$HOME/.config/claude-seo" ]; then
+  INFO "~/.config/claude-seo — not present (optional; Bing/Moz read keys from .env)"
 fi
 
 # vendored python scripts — no-write syntax check (ast.parse, no .pyc output)

@@ -26,19 +26,31 @@
 
 ## 3. Dependencies outside the project
 
-| Dependency | Can you change it? |
-|---|---|
-| `~/Documents/Obsidian/Office` (vault, `regenerate_pdfs.py`, healthcheck) | Yes, via `SEO_OBSIDIAN_VAULT` |
-| `~/.config/gcloud/application_default_credentials.json` and the global `gcloud` command | **No**, it's hardcoded |
-| `/opt/homebrew/opt/python@3.14`, which all 4 venvs link to | A `brew upgrade` can break them |
-| Homebrew pango, cairo, glib and harfbuzz (needed by weasyprint) | System install |
-| `~/.nvm` (used by both launch scripts) | Partly, via `NVM_DIR` |
-| Playwright Chromium in `~/Library/Caches/ms-playwright` | System install |
-| `~/.config/claude-seo/*` and `~/.cache/claude-seo/*` (vendored scripts) | The config folder doesn't exist yet |
-| Chrome profile with the OpenCLI extension (Instagram and Facebook) | Manual setup |
-| `agent-reach` installed from a GitHub zip, plus the npm `opencli` package | External download |
+| Dependency | Can you change it? | Status |
+|---|---|---|
+| `~/Documents/Obsidian/Office` (vault, `regenerate_pdfs.py`, healthcheck) | Yes, via `SEO_OBSIDIAN_VAULT` | Already configurable |
+| `~/.config/gcloud/application_default_credentials.json` and the global `gcloud` command | **Yes** | Fixed: credentials path from `GOOGLE_APPLICATION_CREDENTIALS`; tokens refreshed directly from the credentials file (authorized_user or service_account), gcloud only needed for the initial login |
+| `/opt/homebrew/opt/python@3.14`, which all 4 venvs link to | A `brew upgrade` can break them | Mitigated: `bash scripts/setup-venvs.sh` rebuilds broken venvs; pin with `SEO_PYTHON`; healthcheck detects broken venvs |
+| Homebrew pango, cairo, glib and harfbuzz (needed by weasyprint) | System install | Checked by healthcheck |
+| `~/.nvm` (used by both launch scripts) | Partly, via `NVM_DIR` | Fixed: fully via `NVM_DIR` |
+| Playwright Chromium in `~/Library/Caches/ms-playwright` | System install | Installed by setup-venvs; checked by healthcheck |
+| `~/.config/claude-seo/*` and `~/.cache/claude-seo/*` (vendored scripts) | The config folder doesn't exist yet | Optional: Bing/Moz fall back to `.env` keys |
+| Chrome profile with the OpenCLI extension (Instagram and Facebook) | Manual setup | Manual (see checklist) |
+| `agent-reach` installed from a GitHub zip, plus the npm `opencli` package | External download | Installed by setup-venvs |
 
-ruflo: no dependency. Nothing in this repo refers to it. The venvs themselves sit inside the repo, but they're gitignored and have to be rebuilt by hand.
+ruflo: no dependency. Nothing in this repo refers to it. The venvs themselves sit inside the repo, but they're gitignored and have to be rebuilt with `bash scripts/setup-venvs.sh`.
+
+### Machine setup checklist
+
+| Step | Command |
+|---|---|
+| Weasyprint system libraries | `brew install pango cairo glib harfbuzz` |
+| Build MCP servers | `pnpm install && pnpm build` |
+| API keys | `cp .env.example .env`, then fill in the keys |
+| Python venvs | `bash scripts/setup-venvs.sh` |
+| Google login | `gcloud auth application-default login --client-id-file="$HOME/.config/gcloud/seo-office-oauth-client.json" --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/webmasters.readonly,https://www.googleapis.com/auth/analytics.readonly` |
+| Instagram/Facebook | Dedicated Chrome profile + OpenCLI extension |
+| Check everything | `bash scripts/bootup-healthcheck.sh` |
 
 ## 4. Suggested fixes, in priority order
 

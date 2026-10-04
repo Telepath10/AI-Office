@@ -23,7 +23,7 @@ if ! command -v node >/dev/null 2>&1; then
   [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 fi
 if ! command -v node >/dev/null 2>&1; then
-  newest="$(ls -d "$HOME/.nvm/versions/node/"*/bin 2>/dev/null | tail -1)"
+  newest="$(ls -d "${NVM_DIR:-$HOME/.nvm}/versions/node/"*/bin 2>/dev/null | sort -V | tail -1)"
   [ -n "$newest" ] && export PATH="$newest:$PATH"
 fi
 
