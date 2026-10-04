@@ -8,7 +8,7 @@ This file collects decisions that may need revisiting:
 
 ## Deletions record
 
-Everything removed in the 2026-10-04 cleanup (plan: `CLEANUP-PLAN.md`). The restore point is commit `e632805`, the last commit before the cleanup. Cleanup commit: _(add hash after committing)_.
+Everything removed in the 2026-10-04 cleanup (plan: `CLEANUP-PLAN.md`). The restore point is commit `e632805`, the last commit before the cleanup. Cleanup commit: `950badc`.
 
 **Restore any path:** `git show e632805:<path>` to view it, or `git checkout e632805 -- <path>` to bring it back. For a removed MCP tool, restore the tool's block in `mcp/<server>/src/...` from `e632805`, then run `pnpm build`.
 
