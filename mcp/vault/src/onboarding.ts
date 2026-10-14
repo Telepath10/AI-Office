@@ -50,7 +50,6 @@ export interface ClientProfile {
     seo_plugin: Str;
     cdn: Str;
     merchant_center_id: Str;
-    dev_contact: Str;
     schema_source: Str;
     migrations: Str;
   };
@@ -61,8 +60,6 @@ export interface ClientProfile {
     past_seo: Str;
     voice: Str;
     social_urls: List;
-    cadence: Str;
-    approver: Str;
   };
 }
 
@@ -78,6 +75,8 @@ interface FieldDef {
   example?: string;
   /** What we assume when left blank. */
   if_blank?: string;
+  /** Where we discover this ourselves. When set, do NOT ask the client. */
+  infer?: string;
 }
 
 interface SectionDef {
@@ -107,11 +106,11 @@ export const QUESTIONS: SectionDef[] = [
       { key: "site_url", label: "Website URL", kind: "url", required: true, example: "https://acmedental.com" },
       { key: "owner", label: "Owner / point of contact", kind: "string", if_blank: "Unspecified" },
       { key: "email", label: "Contact email", kind: "email", if_blank: "Unspecified" },
-      { key: "business_type", label: "Business type / industry", kind: "string", if_blank: "Inferred from homepage" },
+      { key: "business_type", label: "Business type / industry", kind: "string", if_blank: "Inferred from homepage", infer: "Homepage JSON-LD type, else seo-slop reads the homepage" },
       { key: "business_model", label: "Business model", kind: "enum", options: BUSINESS_MODELS, if_blank: "All models (local, e-commerce, lead-gen checks all run)" },
-      { key: "value_prop", label: "One-line value proposition", kind: "string", if_blank: "Inferred from homepage" },
-      { key: "services", label: "Top 3-5 products / services", kind: "list", if_blank: "Inferred from site navigation" },
-      { key: "brand_variants", label: "Brand name variants / misspellings", kind: "list", if_blank: "Name + domain only" },
+      { key: "value_prop", label: "One-line value proposition", kind: "string", if_blank: "Inferred from homepage", infer: "Homepage meta description" },
+      { key: "services", label: "Top 3-5 products / services", kind: "list", if_blank: "Inferred from site navigation", infer: "Homepage navigation labels (low confidence: confirm with client)" },
+      { key: "brand_variants", label: "Brand name variants / misspellings", kind: "list", if_blank: "Name + domain only", infer: "Homepage JSON-LD name / alternateName" },
     ],
   },
   {
@@ -122,11 +121,11 @@ export const QUESTIONS: SectionDef[] = [
       { key: "region", label: "State / region", kind: "string", if_blank: "All regions (country-wide)" },
       { key: "city", label: "City", kind: "string", if_blank: "All cities (country-wide)" },
       { key: "location_name", label: "DataForSEO location override", kind: "string", example: "Mumbai,Maharashtra,India", if_blank: "Country" },
-      { key: "languages", label: "Languages", kind: "list", if_blank: "Country's primary language" },
+      { key: "languages", label: "Languages", kind: "list", if_blank: "Country's primary language", infer: "Homepage <html lang>, else country default" },
       { key: "service_area", label: "Service area (cities / radius)", kind: "string", if_blank: "Entire target country" },
-      { key: "persona", label: "Target customer persona", kind: "string", if_blank: "All audiences" },
-      { key: "seed_keywords", label: "Seed keywords (5-20)", kind: "list", if_blank: "Discovered by seo-keywords in Phase 1" },
-      { key: "competitors", label: "Known competitor domains (3-5)", kind: "list", if_blank: "Discovered from SERP / Labs in Phase 1" },
+      { key: "persona", label: "Target customer persona", kind: "string", if_blank: "All audiences", infer: "seo-content from homepage copy (low confidence: confirm with client)" },
+      { key: "seed_keywords", label: "Seed keywords (5-20)", kind: "list", if_blank: "Discovered by seo-keywords in Phase 1", infer: "seo-keywords, Phase 1" },
+      { key: "competitors", label: "Known competitor domains (3-5)", kind: "list", if_blank: "Discovered from SERP / Labs in Phase 1", infer: "seo-keywords, Phase 1 (SERP + Labs)" },
     ],
   },
   {
@@ -135,29 +134,28 @@ export const QUESTIONS: SectionDef[] = [
     ask_when: "business_model is local, multi-location, or blank",
     fields: [
       { key: "nap_name", label: "Business name as listed", kind: "string", if_blank: "Client name" },
-      { key: "nap_address", label: "Full address", kind: "string", if_blank: "Discovered by seo-local" },
-      { key: "nap_phone", label: "Phone", kind: "string", if_blank: "Discovered by seo-local" },
-      { key: "gbp", label: "Google Business Profile URL or CID", kind: "string", if_blank: "seo-local searches for a GBP" },
-      { key: "hours", label: "Opening hours", kind: "string", if_blank: "Taken from GBP if found" },
-      { key: "gbp_categories", label: "GBP primary + secondary categories", kind: "list", if_blank: "Taken from GBP if found" },
-      { key: "branches", label: "Other locations / branches", kind: "list", if_blank: "Single location" },
-      { key: "listings", label: "Existing directory listings", kind: "list", if_blank: "Discovered by seo-local" },
+      { key: "nap_address", label: "Full address", kind: "string", if_blank: "Discovered by seo-local", infer: "Homepage JSON-LD LocalBusiness, then seo-local" },
+      { key: "nap_phone", label: "Phone", kind: "string", if_blank: "Discovered by seo-local", infer: "Homepage JSON-LD LocalBusiness, then seo-local" },
+      { key: "gbp", label: "Google Business Profile URL or CID", kind: "string", if_blank: "seo-local searches for a GBP", infer: "seo-local Maps SERP search" },
+      { key: "hours", label: "Opening hours", kind: "string", if_blank: "Taken from GBP if found", infer: "Homepage JSON-LD, then Google Business Profile" },
+      { key: "gbp_categories", label: "GBP primary + secondary categories", kind: "list", if_blank: "Taken from GBP if found", infer: "Google Business Profile via seo-local" },
+      { key: "branches", label: "Other locations / branches", kind: "list", if_blank: "Single location", infer: "seo-local (GBP + site location pages)" },
+      { key: "listings", label: "Existing directory listings", kind: "list", if_blank: "Discovered by seo-local", infer: "seo-local business_listings" },
     ],
   },
   {
     id: "integrations",
     title: "Access & integrations",
     fields: [
-      { key: "gsc_property", label: "Search Console property", kind: "string", example: "sc-domain:acmedental.com", if_blank: "Not connected (client action)" },
+      { key: "gsc_property", label: "Search Console property", kind: "string", example: "sc-domain:acmedental.com", if_blank: "Not connected (client action)", infer: "Derived as sc-domain:<host> and probed with our own Google access" },
       { key: "ga4_property_id", label: "GA4 property ID (numeric)", kind: "string", example: "123456789", if_blank: "Not connected (client action)" },
-      { key: "bing_webmaster", label: "Bing Webmaster status", kind: "string", example: "verified, access granted", if_blank: "Not connected (client action)" },
-      { key: "cms", label: "CMS / platform", kind: "string", if_blank: "Detected from homepage" },
-      { key: "seo_plugin", label: "SEO plugin", kind: "string", if_blank: "Detected from homepage" },
-      { key: "cdn", label: "CDN / bot protection", kind: "string", if_blank: "Detected from response headers" },
+      { key: "bing_webmaster", label: "Bing Webmaster status", kind: "string", example: "verified, access granted", if_blank: "Not connected (client action)", infer: "Probed with python_bing_webmaster" },
+      { key: "cms", label: "CMS / platform", kind: "string", if_blank: "Detected from homepage", infer: "Homepage HTML and headers" },
+      { key: "seo_plugin", label: "SEO plugin", kind: "string", if_blank: "Detected from homepage", infer: "Homepage HTML" },
+      { key: "cdn", label: "CDN / bot protection", kind: "string", if_blank: "Detected from response headers", infer: "Homepage response headers" },
       { key: "merchant_center_id", label: "Google Merchant Center ID", kind: "string", if_blank: "Not applicable / not connected" },
-      { key: "dev_contact", label: "Developer contact for fixes", kind: "string", if_blank: "Owner" },
-      { key: "schema_source", label: "What injects existing schema", kind: "string", if_blank: "Detected by seo-schema" },
-      { key: "migrations", label: "Past domain / URL migrations", kind: "string", if_blank: "None known" },
+      { key: "schema_source", label: "What injects existing schema", kind: "string", if_blank: "Detected by seo-schema", infer: "Homepage JSON-LD plus detected SEO plugin; seo-schema confirms" },
+      { key: "migrations", label: "Past domain / URL migrations", kind: "string", if_blank: "None known", infer: "Redirect and canonical checks; otherwise none known" },
     ],
   },
   {
@@ -165,13 +163,11 @@ export const QUESTIONS: SectionDef[] = [
     title: "Context & goals",
     fields: [
       { key: "conversions", label: "Primary conversions", kind: "list", if_blank: "All conversions (calls, forms, purchases, bookings)" },
-      { key: "priority_pages", label: "Priority pages / sections", kind: "list", if_blank: "Entire site" },
+      { key: "priority_pages", label: "Priority pages / sections", kind: "list", if_blank: "Entire site", infer: "Homepage navigation (low confidence: confirm with client)" },
       { key: "topics_to_avoid", label: "Topics / claims to avoid", kind: "list", if_blank: "None" },
-      { key: "past_seo", label: "Past SEO work / penalties", kind: "string", if_blank: "None known" },
-      { key: "voice", label: "Brand voice", kind: "string", if_blank: "Neutral, professional" },
-      { key: "social_urls", label: "Social profile URLs", kind: "list", if_blank: "Discovered from site links" },
-      { key: "cadence", label: "Reporting cadence", kind: "string", if_blank: "Monthly" },
-      { key: "approver", label: "Who approves deliverables", kind: "string", if_blank: "Owner" },
+      { key: "past_seo", label: "Past SEO work / penalties", kind: "string", if_blank: "None known", infer: "Redirect and canonical checks; otherwise none known" },
+      { key: "voice", label: "Brand voice", kind: "string", if_blank: "Neutral, professional", infer: "seo-content from homepage copy (low confidence: confirm with client)" },
+      { key: "social_urls", label: "Social profile URLs", kind: "list", if_blank: "Discovered from site links", infer: "Homepage links and JSON-LD sameAs" },
     ],
   },
 ];
@@ -437,7 +433,6 @@ export function normalizeProfile(flatIn: Record<string, unknown>): Normalized {
       seo_plugin: S("seo_plugin"),
       cdn: S("cdn"),
       merchant_center_id: S("merchant_center_id"),
-      dev_contact: S("dev_contact"),
       schema_source: S("schema_source"),
       migrations: S("migrations"),
     },
@@ -448,8 +443,6 @@ export function normalizeProfile(flatIn: Record<string, unknown>): Normalized {
       past_seo: S("past_seo"),
       voice: S("voice"),
       social_urls: L("social_urls"),
-      cadence: S("cadence"),
-      approver: S("approver"),
     },
   };
   return { errors, profile, supplied, applied_defaults: applied, warnings };
@@ -496,6 +489,16 @@ export interface SiteChecks {
     cms_detected?: string | null;
     seo_plugin_detected?: string | null;
     server?: string | null;
+    cdn?: string | null;
+    description?: string | null;
+    h1?: string | null;
+    html_lang?: string | null;
+    jsonld_types?: string[];
+    org_name?: string | null;
+    alt_names?: string[];
+    same_as?: string[];
+    nav?: Array<{ label: string; path: string }>;
+    nap?: { address?: string; phone?: string; hours?: string };
   };
   robots: {
     found: boolean;
@@ -543,6 +546,170 @@ function detectCms(body: string, headers: Headers): { cms: string | null; plugin
   else if (/rank-math|rankmath/i.test(body)) plugin = "Rank Math";
   else if (/all in one seo|aioseo/i.test(body)) plugin = "All in One SEO";
   return { cms, plugin };
+}
+
+const SOCIAL_RE = /^https?:\/\/(www\.)?(facebook|instagram|linkedin|twitter|x|youtube|tiktok|pinterest)\.com\//i;
+const GENERIC_TYPES = new Set(["Organization", "WebSite", "WebPage", "ImageObject", "BreadcrumbList", "SearchAction", "ListItem", "Person", "CollectionPage", "ItemList", "Thing"]);
+const GENERIC_NAV = /^(home|about( us)?|contact( us)?|blog|news|login|log in|sign ?in|sign ?up|register|cart|checkout|search|faq|privacy|terms|menu|my account|account)$/i;
+
+function text(s: string): string {
+  return s.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+}
+
+function detectCdn(headers: Headers): string | null {
+  const server = (headers.get("server") || "").toLowerCase();
+  if (headers.get("cf-ray") || server.includes("cloudflare")) return "Cloudflare";
+  if (headers.get("x-vercel-id")) return "Vercel";
+  if (headers.get("x-amz-cf-id") || /cloudfront/i.test(headers.get("via") || "")) return "CloudFront";
+  if (headers.get("x-sucuri-id") || server.includes("sucuri")) return "Sucuri";
+  if (server.includes("akamai") || headers.get("x-akamai-transformed")) return "Akamai";
+  if (/fastly/i.test(headers.get("x-served-by") || "") || headers.get("x-fastly-request-id")) return "Fastly";
+  if (server.includes("netlify") || headers.get("x-nf-request-id")) return "Netlify";
+  return null;
+}
+
+function jsonLdNodes(body: string): Array<Record<string, unknown>> {
+  const nodes: Array<Record<string, unknown>> = [];
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) {
+    try {
+      const walk = (v: unknown) => {
+        if (Array.isArray(v)) v.forEach(walk);
+        else if (v && typeof v === "object") {
+          const o = v as Record<string, unknown>;
+          if (o["@type"]) nodes.push(o);
+          if (o["@graph"]) walk(o["@graph"]);
+        }
+      };
+      walk(JSON.parse(m[1].trim()));
+    } catch {
+      /* malformed JSON-LD: ignore */
+    }
+  }
+  return nodes;
+}
+
+const asArr = (v: unknown): string[] => (Array.isArray(v) ? v : v ? [v] : []).filter((x) => typeof x === "string") as string[];
+
+function parseHomepageSignals(body: string, base: string): Partial<SiteChecks["homepage"]> {
+  const attr = (re: RegExp) => body.match(re)?.[1]?.trim() || null;
+  const description =
+    attr(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i) ?? attr(/<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i);
+  const h1raw = body.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const html_lang = attr(/<html[^>]+lang=["']([^"']+)["']/i);
+
+  const nodes = jsonLdNodes(body);
+  const types = Array.from(new Set(nodes.flatMap((n) => asArr(n["@type"]))));
+  const org = nodes.find((n) => asArr(n["@type"]).some((t) => /Organization|LocalBusiness|Store|Restaurant|Clinic|Dentist|Service/i.test(t)));
+  const same = new Set<string>(org ? asArr(org.sameAs) : []);
+  for (const n of nodes) asArr(n.sameAs).forEach((u) => same.add(u));
+  for (const m of body.matchAll(/<a[^>]+href=["']([^"']+)["']/gi)) if (SOCIAL_RE.test(m[1]) && !/\/(watch|share|sharer|intent|embed)\b/i.test(m[1])) same.add(m[1].split("?")[0]);
+
+  const nav: Array<{ label: string; path: string }> = [];
+  const navHtml = (body.match(/<nav[\s\S]*?<\/nav>/gi) ?? []).join(" ");
+  for (const m of navHtml.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const label = text(m[2]);
+    if (!label || label.length > 40 || GENERIC_NAV.test(label)) continue;
+    let path: string;
+    try {
+      const u = new URL(m[1], base);
+      if (u.origin !== new URL(base).origin) continue;
+      path = u.pathname;
+    } catch {
+      continue;
+    }
+    if (path === "/" || nav.some((x) => x.path === path)) continue;
+    nav.push({ label, path });
+  }
+
+  const local = nodes.find((n) => n.address || n.telephone);
+  let nap: SiteChecks["homepage"]["nap"];
+  if (local) {
+    const a = local.address;
+    const address =
+      typeof a === "string"
+        ? a
+        : a && typeof a === "object"
+          ? ["streetAddress", "addressLocality", "addressRegion", "postalCode", "addressCountry"].map((k) => (a as Record<string, unknown>)[k]).filter((x) => typeof x === "string").join(", ")
+          : undefined;
+    const hrs = asArr(local.openingHours).join("; ");
+    nap = { address: address || undefined, phone: typeof local.telephone === "string" ? local.telephone : undefined, hours: hrs || undefined };
+    if (!nap.address && !nap.phone && !nap.hours) nap = undefined;
+  }
+
+  return {
+    description,
+    h1: h1raw ? text(h1raw) || null : null,
+    html_lang,
+    jsonld_types: types,
+    org_name: org && typeof org.name === "string" ? org.name : null,
+    alt_names: org ? asArr(org.alternateName) : [],
+    same_as: Array.from(same).slice(0, 12),
+    nav: nav.slice(0, 12),
+    nap,
+  };
+}
+
+// ─── Inference: fill blank optional fields from the site itself ───────────────
+
+export type Confidence = "high" | "medium" | "low";
+export interface Inference {
+  value: string | string[];
+  source: string;
+  confidence: Confidence;
+}
+
+export function inferFields(c: SiteChecks | null, name: string): Record<string, Inference> {
+  const out: Record<string, Inference> = {};
+  if (!c || !c.homepage.reachable) return out;
+  const h = c.homepage;
+  const put = (k: string, value: string | string[] | null | undefined, source: string, confidence: Confidence) => {
+    if (value === null || value === undefined || (Array.isArray(value) ? !value.length : !String(value).trim())) return;
+    out[k] = { value, source, confidence };
+  };
+
+  const specific = (h.jsonld_types ?? []).filter((t) => !GENERIC_TYPES.has(t));
+  put("business_type", specific.slice(0, 2).join(", "), "homepage JSON-LD @type", "medium");
+  put("value_prop", h.description, "homepage meta description", "medium");
+  put("services", h.nav?.map((n) => n.label).slice(0, 6), "homepage navigation", "low");
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  put("brand_variants", Array.from(new Set([h.org_name, ...(h.alt_names ?? [])].filter((x): x is string => !!x && norm(x) !== norm(name)))), "homepage JSON-LD name/alternateName", "high");
+  if (h.html_lang) {
+    try {
+      const lang = new Intl.DisplayNames(["en"], { type: "language" }).of(h.html_lang.split("-")[0]);
+      put("languages", lang && lang !== h.html_lang.split("-")[0] ? [lang] : null, `homepage <html lang="${h.html_lang}">`, "high");
+    } catch {
+      /* unknown code */
+    }
+  }
+  put("cdn", h.cdn, "response headers", "high");
+  if (h.jsonld_types?.length)
+    put("schema_source", `JSON-LD on homepage (${h.jsonld_types.slice(0, 4).join(", ")})${h.seo_plugin_detected ? `, likely ${h.seo_plugin_detected}` : "; injector unknown"}`, "homepage JSON-LD", "medium");
+  put("social_urls", h.same_as, "homepage links and JSON-LD sameAs", "high");
+  put("nap_address", h.nap?.address, "homepage JSON-LD", "medium");
+  put("nap_phone", h.nap?.phone, "homepage JSON-LD", "medium");
+  put("hours", h.nap?.hours, "homepage JSON-LD", "medium");
+  put("priority_pages", h.nav?.map((n) => n.path).slice(0, 8), "homepage navigation", "low");
+  return out;
+}
+
+/** Apply medium/high inferences into the profile (client-supplied values already win upstream). */
+export function applyInferred(p: ClientProfile, inferred: Record<string, Inference>, supplied: Record<string, unknown>): void {
+  for (const [key, inf] of Object.entries(inferred)) {
+    if (supplied[key] !== undefined || inf.confidence === "low") continue;
+    for (const s of QUESTIONS) {
+      const f = s.fields.find((x) => x.key === key);
+      if (!f) continue;
+      const sec = p[s.id] as unknown as Record<string, unknown>;
+      sec[key] = f.kind === "list" || key === "languages" ? (Array.isArray(inf.value) ? inf.value : [inf.value]) : Array.isArray(inf.value) ? inf.value.join(", ") : inf.value;
+    }
+  }
+}
+
+export function inferenceLabel(inf: Inference): string {
+  const v = Array.isArray(inf.value) ? inf.value.join(", ") : inf.value;
+  return `Inferred from ${inf.source} (${inf.confidence}): ${v}${inf.confidence === "low" ? " — confirm with client" : ""}`;
 }
 
 function parseRobots(body: string) {
@@ -612,6 +779,8 @@ export async function runSiteChecks(siteUrl: string): Promise<SiteChecks> {
       cms_detected: cms,
       seo_plugin_detected: plugin,
       server: home.headers.get("server"),
+      cdn: detectCdn(home.headers),
+      ...parseHomepageSignals(home.body, home.url),
     };
   }
 
@@ -666,7 +835,7 @@ export interface ActionItem {
   why: string;
 }
 
-export function clientActions(p: ClientProfile, c: SiteChecks | null): ActionItem[] {
+export function clientActions(p: ClientProfile, c: SiteChecks | null, inferred: Record<string, Inference> = {}, supplied: Record<string, unknown> = {}): ActionItem[] {
   const a: ActionItem[] = [];
   const i = p.integrations;
   const host = new URL(p.identity.site_url).hostname.replace(/^www\./, "");
@@ -678,8 +847,13 @@ export function clientActions(p: ClientProfile, c: SiteChecks | null): ActionIte
     a.push({ area: "Bing Webmaster Tools", action: "Verify the site (or import it from Search Console) and add our account as a user.", why: "Bing/Copilot index coverage and backlink data." });
   if (p.identity.business_model === "ecommerce" && !i.merchant_center_id)
     a.push({ area: "Google Merchant Center", action: "Share the Merchant Center ID and add our account as a user.", why: "Product feed and Shopping visibility." });
-  if (!i.dev_contact)
-    a.push({ area: "Developer access", action: "Name a developer or provide CMS editor access for applying fixes.", why: "Technical fixes need someone who can ship them." });
+
+  const labelOf = (k: string) => QUESTIONS.flatMap((x) => x.fields).find((f) => f.key === k)?.label ?? k;
+  for (const [k, inf] of Object.entries(inferred)) {
+    if (inf.confidence !== "low" || supplied[k] !== undefined) continue;
+    const v = Array.isArray(inf.value) ? inf.value.join(", ") : inf.value;
+    a.push({ area: `Confirm: ${labelOf(k)}`, action: `We inferred "${v}" from the ${inf.source}. Confirm or correct it.`, why: "Low-confidence inference; not used as a fact until the client confirms." });
+  }
 
   if (c) {
     if (c.homepage.bot_protection)
@@ -711,6 +885,12 @@ export function orchestratorFollowups(p: ClientProfile, slug: string): string[] 
     f.push(`google_search_console_queries({site_url: "${p.integrations.gsc_property}", start_date: "${d}", end_date: "${d}", limit: 1}) — confirms Search Console access`);
   if (p.integrations.ga4_property_id)
     f.push(`google_ga4_report({property_id: "${p.integrations.ga4_property_id}", start_date: "${d}", end_date: "${d}"}) — confirms GA4 access`);
+  const host = new URL(p.identity.site_url).hostname.replace(/^www\./, "");
+  if (!p.integrations.gsc_property)
+    f.push(`Probe GSC before asking the client: google_search_console_queries({site_url: "sc-domain:${host}", start_date: "${d}", end_date: "${d}", limit: 1}); if it works, re-call onboard_client with gsc_property "sc-domain:${host}" to clear the checklist item`);
+  if (!p.integrations.bing_webmaster)
+    f.push(`Probe Bing before asking the client: python_bing_webmaster({domain: "${host}"}); if it returns data, re-call onboard_client with bing_webmaster "verified, access granted"`);
+  f.push(`Fields marked "(low) … confirm with client" in the profile are guesses; show them on the checklist, never treat them as client-stated facts`);
   f.push(`Record onboarding check results with add_evidence({client_slug: "${slug}", specialist_id: "seo-slop", provenance: "manual"}) where useful`);
   f.push(`Next: Phase 1 baseline (see skills/seo-playbook/SKILL.md)`);
   return f;
@@ -793,7 +973,7 @@ export function renderChecklistBody(p: ClientProfile, actions: ActionItem[]): st
 export function questionsPayload() {
   return {
     instructions:
-      "Ask the user section by section. Only name, site_url and country are required; every blank optional field gets the listed if_blank assumption. Skip the local section unless business_model is local, multi-location or blank. Then call vault_onboard_client with the answers (flat keys or nested by section).",
+      "Ask the user section by section. Only name, site_url and country are required; every blank optional field gets the listed if_blank assumption. Fields that have an `infer` source are discovered automatically: do NOT ask the client for them (low-confidence guesses go on the checklist for confirmation). Skip the local section unless business_model is local, multi-location or blank. Then call vault_onboard_client with the answers (flat keys or nested by section).",
     required: QUESTIONS.flatMap((s) => s.fields.filter((f) => f.required).map((f) => f.key)),
     sections: QUESTIONS,
   };

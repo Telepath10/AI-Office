@@ -18,6 +18,9 @@ import {
   type FieldError,
   type SiteChecks,
   clientActions,
+  inferFields,
+  inferenceLabel,
+  applyInferred,
   flattenInput,
   normalizeProfile,
   orchestratorFollowups,
@@ -30,6 +33,8 @@ import {
   runSiteChecks,
   localApplies,
 } from "./onboarding.js";
+import { PAGE_BREAK, META_HEADING, buildContentMeta, type MetaContext } from "./contentMeta.js";
+import { lintDeliverable, lintMessage } from "./lint.js";
 import { redact, tail } from "./util.js";
 
 // ─── Store roots ──────────────────────────────────────────────────────────────
@@ -305,6 +310,7 @@ interface Manifest {
   profile?: ClientProfile;
   profile_supplied?: Record<string, unknown>;
   applied_defaults?: Record<string, string>;
+  inferred?: Record<string, unknown>;
   onboarded_at?: string;
   last_checks?: SiteChecks;
 }
@@ -630,6 +636,13 @@ async function handleOnboardClient(args: OnboardArgs) {
     if (!p.integrations.seo_plugin && checks.homepage.seo_plugin_detected) norm.applied_defaults.seo_plugin = `Detected: ${checks.homepage.seo_plugin_detected}`;
     if (!p.integrations.cdn && checks.homepage.server) norm.applied_defaults.cdn = `Detected server: ${checks.homepage.server}`;
   }
+  // Infer other blank optional fields from the site. Medium/high go into the profile;
+  // low-confidence guesses stay out of it and are flagged for client confirmation.
+  const inferred = inferFields(checks, p.identity.name);
+  for (const [k, inf] of Object.entries(inferred)) {
+    if (norm.supplied[k] === undefined) norm.applied_defaults[k] = inferenceLabel(inf);
+  }
+  applyInferred(p, inferred, norm.supplied);
 
   if (isNew) {
     await handleScaffoldClient({
@@ -650,6 +663,7 @@ async function handleOnboardClient(args: OnboardArgs) {
     profile: p,
     profile_supplied: norm.supplied,
     applied_defaults: norm.applied_defaults,
+    inferred,
     onboarded_at: existing?.onboarded_at ?? now,
     ...(checks ? { last_checks: checks } : {}),
   });
@@ -657,7 +671,7 @@ async function handleOnboardClient(args: OnboardArgs) {
   const fmBase = { brain_schema: WORKING_SCHEMA, created: today(), updated: today(), owner: "operator", tags: [`client/${slug}`, "seo/meta", "status/active"] };
   await writeNote(slug, "entities/client-profile.md", { ...fmBase, type: "entity", title: `${p.identity.name}: Client profile`, confidence: "client-supplied", approval_status: "pending" }, renderProfileBody(p, norm.applied_defaults, checks));
 
-  const actions = clientActions(p, checks);
+  const actions = clientActions(p, checks, inferred, norm.supplied);
   await writeNote(slug, "deliverables/onboarding-checklist.md", { ...fmBase, type: "deliverable", title: `${p.identity.name}: Onboarding checklist`, confidence: "seed", approval_status: "pending", tags: [...fmBase.tags.slice(0, 1), "seo/onboarding", "status/active"] }, renderChecklistBody(p, actions));
 
   let rawPath: string | null = null;
@@ -688,6 +702,7 @@ async function handleOnboardClient(args: OnboardArgs) {
     language_name: p.targeting.languages[0],
     local_section: localApplies(p) ? "applies" : "skipped",
     applied_defaults: norm.applied_defaults,
+    inferred,
     warnings: norm.warnings,
     checks,
     client_actions: actions,
@@ -818,10 +833,31 @@ const TYPE_DIR: Record<string, string> = {
   entity: "entities",
   source: "sources",
   "keyword-strategy": "keywords",
+  keyword_report: "keywords",
+  keywords: "keywords", // legacy keyword report type
   "page-brief": "deliverables",
   executive_report: "deliverables",
   content: "blog",
 };
+
+// Types whose Obsidian folder comes from the type, not the working-brain folder they were written in.
+const TYPE_ROUTED = new Set(["content", "keyword_report", "keywords"]);
+const KEYWORD_REPORT_TYPES = new Set(["keyword_report", "keywords"]);
+// Non-audit deliverables linted for tool-failure / vendor wording at publish (audits lint in render_audit.py).
+const LINT_TYPES = new Set(["keyword_report", "keywords", "keyword-strategy", "content", "deliverable", "page-brief"]);
+// Types that get a PDF on publish (audits / executive reports get theirs from the renderer).
+const PDF_TYPES = new Set(["keyword_report", "keywords", "content"]);
+// Extra brief fields kept as Obsidian properties on published content.
+const CONTENT_FM_KEEP = [
+  "seo_title",
+  "meta_description",
+  "slug",
+  "primary_keyword",
+  "search_intent",
+  "content_goal",
+  "funnel_stage",
+  "content_type",
+];
 
 // Source folder / note type → discipline tag, used to auto-tag published notes
 // so discipline tagging is never forgotten. Unmapped folders (entities, decisions,
@@ -834,11 +870,14 @@ const DIR_DISCIPLINE: Record<string, string> = {
 const TYPE_DISCIPLINE: Record<string, string> = {
   audit: "seo/technical",
   "keyword-strategy": "seo/keywords",
+  keyword_report: "seo/keywords",
+  keywords: "seo/keywords",
   deliverable: "seo/content",
   "page-brief": "seo/content",
 };
 
 function deriveDiscipline(sourceDir: string, type: string): string | undefined {
+  if (KEYWORD_REPORT_TYPES.has(type)) return TYPE_DISCIPLINE[type];
   if (sourceDir && sourceDir !== ".") return DIR_DISCIPLINE[sourceDir];
   return TYPE_DISCIPLINE[type];
 }
@@ -879,8 +918,32 @@ interface PublishArgs {
   force?: boolean;
 }
 
+function isWorkingKeywordsPath(relativePath: string): boolean {
+  return path.posix.normalize(String(relativePath).replace(/\\/g, "/")).replace(/^\.\//, "").split("/")[0] === "keywords";
+}
+
+async function metaContext(slug: string): Promise<MetaContext> {
+  const manifest = await readManifest(slug);
+  const t = manifest?.profile?.targeting;
+  return {
+    publishedDate: today(),
+    location: t?.location_name || t?.country || undefined,
+    language: t?.languages?.[0] || undefined,
+  };
+}
+
+/** True when the body already carries the generated meta page (so it is never appended twice). */
+function hasMetaPage(body: string): boolean {
+  return body.includes(PAGE_BREAK) && body.includes(META_HEADING);
+}
+
 async function handlePublishNote(args: PublishArgs) {
   const slug = requireClientSlug(args.client_slug);
+  if (isWorkingKeywordsPath(args.path) && !args.force) {
+    throw new Error(
+      `cannot publish '${args.path}': keywords/ holds the internal working map other specialists read (publishing moves it away). Publish a keyword_report deliverable (deliverables/keyword-research-<YYYY-MM>.md, type: keyword_report) instead, or pass force: true`,
+    );
+  }
   const note = await readNote(slug, args.path);
   if (!note) throw new Error(`working note not found: ${args.path}`);
 
@@ -907,13 +970,34 @@ async function handlePublishNote(args: PublishArgs) {
       throw new Error(`cannot publish '${args.path}': the body changed after the last vault_check_content; re-run the check`);
     }
   }
-  await copyChartsToObsidian(slug, note.body);
   const title = sanitizeFilename(args.title ?? ((fm.title as string) || path.basename(args.path, ".md")));
+
+  // Client-facing wording lint (drafted body only; the generated meta page is linted separately).
+  if (LINT_TYPES.has(type)) {
+    const msg =
+      lintMessage(`'${args.path}' (title)`, lintDeliverable(title)) || lintMessage(`'${args.path}'`, lintDeliverable(note.body));
+    if (msg) throw new Error(msg);
+  }
+
+  // Published body: content gets the meta page as a separate last page; PDF-bearing types get the PDF link.
+  let publishedBody = note.body;
+  if (type === "content" && !hasMetaPage(note.body)) {
+    const metaPage = buildContentMeta(fm, note.body, fm.content_check_summary, await metaContext(slug));
+    const metaMsg = lintMessage(`'${args.path}' (generated meta page, from the brief frontmatter)`, lintDeliverable(metaPage));
+    if (metaMsg) throw new Error(metaMsg);
+    publishedBody = `${note.body.trimEnd()}\n\n${PAGE_BREAK}\n\n${metaPage}`;
+  }
+  if (PDF_TYPES.has(type) && !publishedBody.includes("PDF version:")) {
+    publishedBody = `${publishedBody.trimEnd()}\n\n**📄 PDF version:** [[attachments/${pdfFileName(title)}|PDF]]\n`;
+  }
+
+  await copyChartsToObsidian(slug, note.body);
+  if (PDF_TYPES.has(type)) await fsp.mkdir(resolveObsidian(slug, "attachments"), { recursive: true });
 
   const sourceDir = path.posix.dirname(args.path);
   const targetDir =
     args.target_dir?.replace(/^\/+|\/+$/g, "") ||
-    (type === "content" ? TYPE_DIR.content : sourceDir !== "." ? sourceDir : TYPE_DIR[type] ?? "meta");
+    (TYPE_ROUTED.has(type) ? TYPE_DIR[type] : sourceDir !== "." ? sourceDir : TYPE_DIR[type] ?? "meta");
 
   let tags: string[] = Array.isArray(args.tags)
     ? args.tags
@@ -958,11 +1042,17 @@ async function handlePublishNote(args: PublishArgs) {
   };
   if (auditCycle) publishedFm.audit_cycle = auditCycle;
   if (Array.isArray(fm.sources)) publishedFm.sources = fm.sources;
+  if (type === "content") {
+    for (const k of CONTENT_FM_KEEP) {
+      const v = fm[k];
+      if (v !== undefined && v !== null && String(v).trim() !== "") publishedFm[k] = v;
+    }
+  }
 
   const targetRel = path.posix.join(targetDir, `${title}.md`);
   const obsidianTarget = resolveObsidian(slug, targetRel);
   await fsp.mkdir(path.dirname(obsidianTarget), { recursive: true });
-  await atomicWriteFile(obsidianTarget, matter.stringify(note.body, publishedFm));
+  await atomicWriteFile(obsidianTarget, matter.stringify(publishedBody, publishedFm));
 
   await addPublishedEntry(slug, `- [[${targetRel.replace(/\.md$/, "")}|${title}]]`);
 
@@ -1104,6 +1194,20 @@ async function handleCheckContent(args: { client_slug: string; path: string }) {
   };
 }
 
+async function handlePreviewContentMeta(args: { client_slug: string; path: string }) {
+  const slug = requireClientSlug(args.client_slug);
+  const note = await readNote(slug, args.path);
+  if (!note) throw new Error(`working note not found: ${args.path}`);
+  const metaPage = buildContentMeta(note.frontmatter, note.body, note.frontmatter.content_check_summary, await metaContext(slug));
+  const notes: string[] = [];
+  if ((note.frontmatter.type ?? "content") !== "content") notes.push(`note type is '${String(note.frontmatter.type)}'; the meta page is only appended to type: content`);
+  if (note.frontmatter.content_checked !== true) notes.push("content check not passed yet: run vault_check_content (the check counts appear once it has run)");
+  const lint = lintMessage("as is", lintDeliverable(metaPage));
+  if (lint) notes.push(`the generated meta page would block publish: ${lint}`);
+  const header = notes.length ? notes.map((n) => `> Note: ${n}`).join("\n") + "\n\n" : "";
+  return { content: [{ type: "text", text: `${header}${PAGE_BREAK}\n\n${metaPage}` }] };
+}
+
 // ─── Audit rendering (skills/audit-report) ────────────────────────────────────
 
 const AUDIT_NAMES: Record<string, string> = {
@@ -1143,7 +1247,8 @@ async function copyChartsToObsidian(slug: string, body: string): Promise<void> {
 }
 
 function pdfFileName(title: string): string {
-  return title.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") + ".pdf";
+  const base = title.normalize("NFKD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return (base || "note") + ".pdf";
 }
 
 function hostOf(url: string): string {
@@ -1639,6 +1744,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "vault_preview_content_meta",
+      description:
+        "Preview the 'Content brief & SEO notes' meta page that vault_publish_note appends (after a page break, as the separate last PDF page) to a type: content note. Built from the brief frontmatter (keyword_metrics, search_intent, content_goal, funnel_stage, target_audience, cta, schema, content_type, social_signals, facts, internal_links, questions). Read-only: publishes and writes nothing.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          client_slug: { type: "string" },
+          path: { type: "string", description: "Working-brain path of the content note" },
+        },
+        required: ["client_slug", "path"],
+      },
+    },
+    {
       name: "vault_render_audit",
       description:
         "Render a working audit note from its ```audit-data JSON block (skills/audit-report/SKILL.md) into the standard client-ready report: deterministic scores, SVG charts, fix plan by category with business impact, findings in detail, roadmap. Validates the data and lints out tool-failure wording; data_gaps are kept out of the deliverable and returned (notify_user) + saved to meta/run-issues/. Re-runnable. Required before publishing type: audit.",
@@ -1752,7 +1870,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "vault_publish_note",
       description:
-        "Publish a working-brain note to Obsidian. Requires approval_status: approved (or force: true). Strips agent-only frontmatter, adds obsidian-brain.v1 tags, updates the client index.md, appends log.md, and moves the working copy to .published/.",
+        "Publish a working-brain note to Obsidian. Requires approval_status: approved (or force: true). Keeps a fixed frontmatter list (plus SEO brief fields for type: content), adds obsidian-brain.v1 tags, updates the client index.md, appends log.md, and moves the working copy to .published/. type: keyword_report goes to keywords/ (the working keywords/ map itself is refused); keyword_report, content and deliverable bodies are blocked if they mention tool failures or internal tool names. type: content gets the generated meta page (see vault_preview_content_meta) after a page break; keyword_report and content get a PDF link (run vault_export_pdfs after).",
       inputSchema: {
         type: "object",
         properties: {
@@ -1879,6 +1997,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleOnboardClient(a as unknown as OnboardArgs);
       case "vault_check_content":
         return await handleCheckContent(a as unknown as { client_slug: string; path: string });
+      case "vault_preview_content_meta":
+        return await handlePreviewContentMeta(a as unknown as { client_slug: string; path: string });
       case "vault_render_audit":
         return await handleRenderAudit(a as unknown as { client_slug: string; path: string });
       case "vault_render_executive_report":

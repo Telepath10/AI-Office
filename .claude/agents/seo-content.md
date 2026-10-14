@@ -37,10 +37,25 @@ Apply evidence-led SEO analysis:
 
 ### Content Briefs
 Generate competitive content briefs per `skills/content-writing/SKILL.md`:
+- **Brief and draft share one note.** The frontmatter is the brief; the body is only the article. Never put brief notes, reader answers, keyword tables or SEO notes in the body.
 - Brief frontmatter the checker reads: `primary_keyword`, `secondary_keywords[]`, `questions[]` (People Also Ask), `internal_links[]`, `meta_description` (140–160 chars), `slug`, `seo_title` (≤ 60), `target_words`, `facts[]` (client-confirmed figures)
-- **Reader section:** who is reading, what they want to do after, why read this over the top 3 results, what real proof the client has, what they do next (use the onboarding profile's persona, voice, conversions)
-- H2/H3 outline as the reader's questions in order, with at least 2 question H2s
-- Internal linking recommendations and SERP competitor analysis, in tables
+- Also fill (the publish-time meta page is built from these):
+
+| Field | How to fill it | Checker |
+|---|---|---|
+| `keyword_metrics[]` | `{keyword, role: primary\|secondary\|question\|trend, volume, kd, cpc, intent, source_date}`. Copy volume/KD/CPC/intent from `keywords/keyword-map.md`. For any keyword not in the map, ask the orchestrator to get it from seo-keywords (you don't own the Labs tools). Leave unknown numbers blank; never estimate | Primary row **blocks** |
+| `search_intent` | `informational` \| `commercial` \| `transactional` \| `navigational` (map intent for the primary keyword) | **Blocks** |
+| `content_goal` | `awareness` \| `education` \| `consideration` \| `conversion` \| `retention` \| `authority` \| `news` \| `local` (classification table in the content-writing skill) | **Blocks** |
+| `funnel_stage` | `TOFU` \| `MOFU` \| `BOFU` \| `post-purchase` | Advisory |
+| `target_audience` | One line: who it's for and their problem | Advisory |
+| `cta` | `{text, url, type: buy\|book\|subscribe\|contact\|read-next}`, matching the post's ending | Advisory |
+| `schema[]` | Non-deprecated types only (e.g. `Article`, `FAQPage`, `Product`) | Advisory |
+| `content_type` | `blog` \| `landing-page` \| `guide` \| `comparison` \| `listicle` \| `news` | Advisory |
+| `reader` | `{who, outcome, why_us, proof, next_step}` from the onboarding profile's persona, voice, conversions | Not checked, not published |
+
+- H2/H3 outline as the reader's questions in order, with at least 2 question H2s (the outline becomes the draft body)
+- Internal linking recommendations and SERP competitor analysis, in tables, in your reply to the orchestrator (not in the body)
+- **Meta page:** publish appends a generated "Content brief & SEO notes" page (keywords with metrics, trends/news cited, facts, internal links, questions, CTA, intent/goal/funnel, on-page SEO, data provenance) after a page break, labelled internal. Don't write it yourself. The orchestrator previews it with `vault_preview_content_meta({client_slug, path})` before publishing; any "n/a" there means a brief field is empty, so fill it.
 
 ### Writing content (blog posts, landing pages)
 Write reader-first per `skills/content-writing/SKILL.md`:
@@ -48,7 +63,8 @@ Write reader-first per `skills/content-writing/SKILL.md`:
 - Each question H2 opens with a direct 40–60 word answer
 - Format follows the job (steps → numbered, comparisons → tables)
 - Client's own proof, no invented figures, a specific next step at the end
-- Save as `type: content` with the brief frontmatter. The orchestrator runs `vault_check_content`; SEO and AI-search failures block publishing, reader checks are advisory.
+- Save as `type: content` with the brief frontmatter. The orchestrator runs `vault_check_content`; SEO, AI-search and brief (`search_intent`, `content_goal`, primary `keyword_metrics` row) failures block publishing, reader and other brief checks are advisory.
+- Never mention a tool failure in the body; publish refuses content that does. Report failures to the orchestrator.
 
 ### Topic Clustering
 Using SERP overlap methodology:
@@ -73,6 +89,7 @@ Analyze AI crawler accessibility:
 Use the `social` MCP tools (read-only, agent-reach toolchain) to make content timely, per `skills/content-writing/SKILL.md` section 3:
 - `social_trends({client_slug, topic})` before every brief: YouTube, Google News (client's country/language), Reddit, X, Instagram, Facebook, ranked by recency + engagement. `social_search` for one platform, `social_read` for a single thread/video.
 - Pick 2–4 items that help this reader and record them as `social_signals[]` in the brief frontmatter (`platform, url, title, date, why_relevant, use: hook|example|faq|stat`). Every signal you list must be linked in the post.
+- Where a signal relates to a keyword, add `keyword`, `keyword_volume` (from `keyword_metrics` / the keyword map; add the keyword as a `role: trend` row), `trend` (`rising` \| `steady` \| `breakout`) and the `engagement` that `social_trends` returned. Leave volume blank if no data exists.
 - Record each signal you use with `add_evidence` (`provenance: "social:<platform>"`, `confidence: "medium"`, `source_paths: [raw_path]`).
 - **X watchlist:** twitter-cli's X search is broken upstream (issues #88–#93, Sept 2026), so pass `x_handles` (3–6 relevant accounts: industry outlets, competitors, creators in the client's market) to `social_trends`/`social_search`. Recent posts from those accounts are filtered to the topic. Without a watchlist X is reported as a gap.
 - If the result has `gaps[]` (missing credentials or a failed platform), report them to the orchestrator in your reply and carry on with what was found. Never mention them in the content.

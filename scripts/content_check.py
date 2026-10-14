@@ -5,7 +5,9 @@ Reads JSON on stdin: {"frontmatter": {...}, "body": "...", "evidence": ["claim t
 Prints JSON: {"ok": bool, "seo_ok": bool, "results": [{group, check, level, detail}], "summary": {...}, "table": md}
 
 Brief fields (note frontmatter): primary_keyword, secondary_keywords[], questions[], internal_links[],
-meta_description, slug, target_words, seo_title?, facts[]?  Spec: skills/content-writing/SKILL.md
+meta_description, slug, target_words, seo_title?, facts[]?, keyword_metrics[] {keyword, role, volume, kd, cpc,
+intent, source_date}, search_intent, content_goal, funnel_stage, target_audience, cta {text, url, type}, schema[],
+content_type, social_signals[] {..., keyword?, keyword_volume?, trend?, engagement?}.  Spec: skills/content-writing/SKILL.md
 """
 import json
 import re
@@ -22,6 +24,15 @@ BANNED_OPENERS = [
 ]
 CALLOUT_RE = re.compile(r"\*\*(pro tip|tip|important|note|heads up|quick tip)\b", re.I)
 CTA_RE = re.compile(r"\b(book|shop|order|contact|call|try|get started|start|visit|sign up|buy|browse|explore|download|enrol|enroll|register|subscribe|message|whatsapp)\b", re.I)
+SEARCH_INTENTS = ("informational", "commercial", "transactional", "navigational")
+CONTENT_GOALS = ("awareness", "education", "consideration", "conversion", "retention", "authority", "news", "local")
+FUNNEL_STAGES = ("TOFU", "MOFU", "BOFU", "post-purchase")
+KW_ROLES = ("primary", "secondary", "question", "trend")
+CTA_TYPES = ("buy", "book", "subscribe", "contact", "read-next")
+CONTENT_TYPES = ("blog", "landing-page", "guide", "comparison", "listicle", "news")
+SIGNAL_TRENDS = ("rising", "steady", "breakout")
+# Google retired these rich results (see .claude/agents/seo-schema.md); never put them in a brief.
+DEPRECATED_SCHEMA = {"howto", "specialannouncement", "claimreview", "vehiclelisting", "estimatedsalary", "learningvideo", "courseinfo"}
 FIGURE_RE = re.compile(
     r"(\b\d[\d,.]*\s*(%|percent|million|billion|thousand|lakh|crore|x\b|times)|\b(millions|thousands|billions) of\b|"
     r"\b(studies|research|experts|surveys?) (show|shows|say|says|suggest|suggests|found)\b|\b\d+(\.\d+)?\+?\s*(weeks?|days?|hours?|minutes?|months?|years?)\b)",
@@ -154,6 +165,104 @@ def as_list(v):
     return [v]
 
 
+def norm(v):
+    return re.sub(r"\s+", " ", str(v or "")).strip().lower()
+
+
+def enum_value(v, allowed):
+    """Return the canonical enum value for v (case-insensitive), or None."""
+    n = norm(v)
+    for a in allowed:
+        if n == a.lower():
+            return a
+    return None
+
+
+def blank(v):
+    return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, dict)) and not v)
+
+
+def brief_checks(fm, kw, add):
+    """Brief-completeness checks for the fields the publish-time meta page is built from."""
+    W = "warn"
+    # Blocking: intent, goal, and a metrics row for the primary keyword.
+    si = fm.get("search_intent")
+    if blank(si):
+        add("Brief", "Search intent set", False, "frontmatter search_intent is missing (" + " / ".join(SEARCH_INTENTS) + ")")
+    else:
+        v = enum_value(si, SEARCH_INTENTS)
+        add("Brief", "Search intent set", bool(v), v or f'"{si}" is not one of ' + " / ".join(SEARCH_INTENTS))
+    cg = fm.get("content_goal")
+    if blank(cg):
+        add("Brief", "Content goal set", False, "frontmatter content_goal is missing (" + " / ".join(CONTENT_GOALS) + ")")
+    else:
+        v = enum_value(cg, CONTENT_GOALS)
+        add("Brief", "Content goal set", bool(v), v or f'"{cg}" is not one of ' + " / ".join(CONTENT_GOALS))
+
+    rows = [r for r in as_list(fm.get("keyword_metrics")) if isinstance(r, dict)]
+    primary_row = None
+    if kw:
+        primary_row = next((r for r in rows if norm(r.get("keyword")) == norm(kw) and norm(r.get("role")) == "primary"), None)
+        if primary_row:
+            detail = f'"{kw}"'
+        elif any(norm(r.get("keyword")) == norm(kw) for r in rows):
+            detail = f'row for "{kw}" exists but its role is not primary'
+        elif not rows:
+            detail = "keyword_metrics is missing (take volume/KD/intent from keywords/keyword-map.md or ask seo-keywords)"
+        else:
+            detail = f'no keyword_metrics row for "{kw}" with role: primary'
+        add("Brief", "Primary keyword has a keyword_metrics row", bool(primary_row), detail)
+
+    # Advisory: metric completeness and enum validity.
+    if rows:
+        no_metrics = [str(r.get("keyword") or "?") for r in rows if blank(r.get("volume")) or blank(r.get("kd"))]
+        add("Brief", "Keyword metrics have volume and KD", not no_metrics,
+            ("missing for: " + ", ".join(no_metrics[:6]) + (" …" if len(no_metrics) > 6 else "")) if no_metrics else f"{len(rows)} rows", W)
+        bad = [f'{r.get("keyword") or "?"} (role "{r.get("role")}")' for r in rows if not enum_value(r.get("role"), KW_ROLES)]
+        bad += [f'{r.get("keyword") or "?"} (intent "{r.get("intent")}")' for r in rows
+                if not blank(r.get("intent")) and not enum_value(r.get("intent"), SEARCH_INTENTS)]
+        no_date = [r for r in rows if blank(r.get("source_date"))]
+        if bad:
+            add("Brief", "Keyword metrics roles and intents valid", False, "invalid: " + ", ".join(bad[:5]), W)
+        if no_date:
+            add("Brief", "Keyword metrics dated", False, f"{len(no_date)} rows without source_date", W)
+    fs = fm.get("funnel_stage")
+    if blank(fs):
+        add("Brief", "Funnel stage set", False, "frontmatter funnel_stage is missing (" + " / ".join(FUNNEL_STAGES) + ")", W)
+    else:
+        v = enum_value(fs, FUNNEL_STAGES)
+        add("Brief", "Funnel stage set", bool(v), v or f'"{fs}" is not one of ' + " / ".join(FUNNEL_STAGES), W)
+    ta = fm.get("target_audience")
+    add("Brief", "Target audience set", not blank(ta), "" if not blank(ta) else "frontmatter target_audience is missing", W)
+    cta = fm.get("cta")
+    if blank(cta):
+        add("Brief", "CTA planned", False, "frontmatter cta {text, url, type} is missing", W)
+    elif not isinstance(cta, dict):
+        add("Brief", "CTA planned", False, "cta should be {text, url, type}", W)
+    else:
+        gaps = [k for k in ("text", "url", "type") if blank(cta.get(k))]
+        if not blank(cta.get("type")) and not enum_value(cta.get("type"), CTA_TYPES):
+            gaps.append(f'type "{cta.get("type")}" is not one of ' + " / ".join(CTA_TYPES))
+        add("Brief", "CTA planned", not gaps, ("missing/invalid: " + ", ".join(gaps)) if gaps else f'{cta.get("type")}: {cta.get("text")}', W)
+    schema = [str(x).strip() for x in as_list(fm.get("schema")) if str(x).strip()]
+    if not schema:
+        add("Brief", "Schema types planned", False, "frontmatter schema[] is missing (e.g. Article, FAQPage, Product)", W)
+    else:
+        dep = [x for x in schema if x.lower() in DEPRECATED_SCHEMA]
+        add("Brief", "Schema types planned", not dep, ("deprecated: " + ", ".join(dep)) if dep else ", ".join(schema), W)
+    ct = fm.get("content_type")
+    if blank(ct):
+        add("Brief", "Content type set", False, "frontmatter content_type is missing (" + " / ".join(CONTENT_TYPES) + ")", W)
+    else:
+        v = enum_value(ct, CONTENT_TYPES)
+        add("Brief", "Content type set", bool(v), v or f'"{ct}" is not one of ' + " / ".join(CONTENT_TYPES), W)
+    sigs = [x for x in as_list(fm.get("social_signals")) if isinstance(x, dict)]
+    bad_trend = [str(x.get("title") or x.get("url") or "?")[:40] for x in sigs
+                 if not blank(x.get("trend")) and not enum_value(x.get("trend"), SIGNAL_TRENDS)]
+    if bad_trend:
+        add("Brief", "Signal trend values valid", False, "trend must be " + " / ".join(SIGNAL_TRENDS) + ": " + ", ".join(bad_trend[:4]), W)
+
+
 def figure_sourced(n, evidence):
     """Whole-number match: "10" must not match inside "100" or "1.05"."""
     return re.search(rf"(?<![\d.]){re.escape(n)}(?![\d]|\.\d)", evidence) is not None
@@ -216,6 +325,9 @@ def main():
     missing_links = [l for l in links if l not in body]
     if links:
         add("SEO", "Planned internal links present", not missing_links, ("missing: " + ", ".join(missing_links)) if missing_links else f"{len(links)} present")
+
+    # ─── Brief (intent/goal/primary metrics block; the rest is advisory) ───
+    brief_checks(fm, kw, add)
 
     # ─── AI search (blocking) ───────────────────────────────────────────────
     h2_all = [s for s in sections if s["level"] == 2]
@@ -295,7 +407,7 @@ def main():
     seo_ok = not any(r["level"] == "fail" for r in R)
     icon = {"pass": "✅", "warn": "⚠️", "fail": "❌"}
     table = ["| Group | Check | Result | Detail |", "|---|---|---|---|"]
-    order = {"SEO": 0, "AI search": 1, "Sources": 2, "Reader": 3}
+    order = {"SEO": 0, "Brief": 1, "AI search": 2, "Sources": 3, "Reader": 4}
     for r in sorted(R, key=lambda r: order[r["group"]]):
         table.append(f'| {r["group"]} | {r["check"]} | {icon[r["level"]]} {r["level"]} | {r["detail"].replace("|", "/")} |')
     summary = {k: sum(1 for r in R if r["level"] == k) for k in ("pass", "warn", "fail")}

@@ -40,6 +40,13 @@ hr { border: none; border-top: 1pt solid #dde3e8; margin: 12pt 0; }
 img.chart { display: block; max-width: 100%; max-height: 95mm; margin: 6pt auto 10pt auto; page-break-inside: avoid; }
 h3 { page-break-after: avoid; }
 table, blockquote { page-break-inside: avoid; }
+.page-break { break-before: page; page-break-before: always; height: 0; margin: 0; }
+/* Content meta page (after the page break): compact so it stays a single last page where possible. */
+.page-break ~ h2 { margin-top: 0; }
+.page-break ~ h3 { font-size: 9.5pt; margin: 7pt 0 2pt 0; }
+.page-break ~ p { font-size: 8.5pt; }
+.page-break ~ table { font-size: 7.5pt; margin: 3pt 0; }
+.page-break ~ table th, .page-break ~ table td { padding: 2pt 4pt; }
 """
 
 EMBED_RE = re.compile(r"!\[\[([^\]|]+\.(?:svg|png|jpe?g|gif|webp))(?:\|[^\]]*)?\]\]", re.I)

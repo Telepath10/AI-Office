@@ -39,7 +39,8 @@ seo-keywords is still the default caller of `serp` for keyword targets, and seo-
 |---|---|---|---|
 | `entities/competitors.md` | seo-keywords (phase 0) | 3–8 organic competitors (domain, shared keywords, ETV) merged with known business competitors from hot.md; local competitors added by seo-local | everyone |
 | `keywords/visibility-baseline.md` | seo-keywords | ranked keyword counts by position bucket, ETV, top ranking URLs | orchestrator, content, google |
-| `keywords/keyword-map.md` | seo-keywords (phase 1) | keyword → **one** URL, volume, KD, intent, priority, gap flag | content, technical, vault |
+| `keywords/keyword-map.md` | seo-keywords (phase 1) | keyword → **one** URL, volume, KD, intent, priority, gap flag. Internal working map, **never published** (the vault refuses it) | content, technical, vault |
+| `deliverables/keyword-research-<YYYY-MM>.md` (`type: keyword_report`) | seo-keywords (phase 2) | client-facing keyword report built from the map (template in `.claude/agents/seo-keywords.md`), all tables, data date + location, no tool-failure wording | orchestrator (publishes to Obsidian `keywords/` + PDF) |
 | `backlinks/baseline.md`, `backlinks/link-gap.md` | seo-backlinks | profile summary; domains linking to competitors but not the client; unlinked mentions | content, orchestrator |
 | `audits/local-grid.md` | seo-local | geo-grid map-pack ranks per point and keyword; review comparison | orchestrator, content |
 | `audits/geo-baseline.md` | seo-content | AI mention metrics for client and competitors; top cited domains/pages | local, orchestrator |
@@ -68,8 +69,10 @@ All audit output follows `skills/audit-report/SKILL.md` (`audit-data` → `rende
 - **Exit:** every priority keyword maps to exactly one URL.
 
 ### 2. Plan
-- **content:** briefs from `keyword-map.md` and the saved `serp` payloads (don't re-call). `llm_response` (web_search on) for 2–3 target questions per brief to see the current AI answer. `content_summary` for brand-authority signals. BEAST 30/60/90 roadmap, using the business-type overlay in `references/business-types/` (`saas`, `local-seo-services`, `ecommerce`, `publisher-news`, `lead-gen-b2b`, `affiliate-content`) that matches the client.
-- **Exit:** every brief cites the raw_paths it used.
+- **keywords:** write the `keyword_report` deliverable from `keyword-map.md` (summary, keyword map, clusters, quick wins, content gaps, recommended next pieces, data date + location). Supply `keyword_metrics` rows (volume, KD, CPC, intent, source_date) for any brief keyword not in the map.
+- **orchestrator:** approve the `keyword_report` → `publish_note` → `export_pdfs`.
+- **content:** briefs (with `keyword_metrics`, `search_intent`, `content_goal`, `funnel_stage`, `cta`, `schema` per `skills/content-writing/SKILL.md`) briefs from `keyword-map.md` and the saved `serp` payloads (don't re-call). `llm_response` (web_search on) for 2–3 target questions per brief to see the current AI answer. `content_summary` for brand-authority signals. BEAST 30/60/90 roadmap, using the business-type overlay in `references/business-types/` (`saas`, `local-seo-services`, `ecommerce`, `publisher-news`, `lead-gen-b2b`, `affiliate-content`) that matches the client.
+- **Exit:** every brief cites the raw_paths it used; the `keyword_report` is published with its PDF.
 
 ### 3. Fix
 - **technical:** re-run `onpage_instant` on changed URLs and compare against the earlier raw payload. **schema** reads that payload plus its own crawl.

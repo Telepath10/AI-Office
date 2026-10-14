@@ -25,7 +25,7 @@ Agent prompts: edit `.claude/agents/*`, then run `node scripts/sync-agents.mjs` 
 
 MCP tools appear as `mcp__<server>__<server-prefix>_<tool>`, e.g. `mcp__vault__vault_publish_note`, `mcp__dataforseo__dataforseo_spend`, `mcp__google-apis__google_pagespeed`. Prose prompts use the short name (`publish_note`, `render_audit`) as shorthand only; nothing resolves it automatically, so call the full name.
 
-Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools. Specialists only get vault read/write, evidence, `render_audit` and `check_content`; `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub` and `render_executive_report` are orchestrator-only (`seo-vault` also keeps `cleanup`). `.env` reads are denied in both harnesses.
+Specialists cannot Edit/Write the filesystem (permission deny). Brain writes go through vault MCP tools. Specialists only get vault read/write, evidence, `render_audit` and `check_content`; `publish_note`, `export_pdfs`, `cleanup`, `onboard_client`, `scaffold_client`, `write_hot`, `sync_clients_hub`, `render_executive_report` and `preview_content_meta` are orchestrator-only (`seo-vault` also keeps `cleanup`). `.env` reads are denied in both harnesses.
 
 ## Orchestrator rules
 
@@ -48,9 +48,10 @@ Use vault MCP tools to read/write. Check the vault before specialist work to avo
 
 1. **Audits:** specialists write an `audit-data` JSON block (`skills/audit-report/SKILL.md`). Run vault `render_audit` per audit, then `render_executive_report` for the cycle. Rendered `type: audit` / `executive_report` notes are required before publish.
 2. **Humanize the executive report** with `skills/humanizer/SKILL.md`. Keep the frontmatter, chart embeds, links, scores and facts. Separate technical audits are **never** humanized.
-3. **Content** (`type: content`, `skills/content-writing/SKILL.md`): `social_status` (prompt the user for missing dedicated-account credentials) → `social_trends` → brief with `social_signals` → draft → vault `check_content` → humanize → `check_content` again. SEO and AI-search checks block publishing; reader checks are advisory.
-4. Set `approval_status: approved` and call vault `publish_note` (copies charts to `attachments/charts/`).
-5. Call vault `export_pdfs` after every publish.
+3. **Content** (`type: content`, `skills/content-writing/SKILL.md`): `social_status` (prompt the user for missing dedicated-account credentials) → `social_trends` → brief (`social_signals`, `keyword_metrics`, `search_intent`, `content_goal`, `funnel_stage`, `cta`, `schema`) → draft → vault `check_content` → humanize → `check_content` again → vault `preview_content_meta`. SEO, AI-search and brief checks (`search_intent`, `content_goal`, primary `keyword_metrics` row) block publishing; reader checks are advisory. At publish the vault appends a page break and a generated "Content brief & SEO notes" meta page (internal) plus a PDF link; never write that page into the body.
+4. **Keyword research:** seo-keywords builds `keywords/keyword-map.md` (internal, never published) and writes a `type: keyword_report` deliverable (`deliverables/keyword-research-<YYYY-MM>.md`); publish lands it in Obsidian `keywords/` with a PDF. Publishing the working `keywords/` map is refused.
+5. Set `approval_status: approved` and call vault `publish_note` (copies charts to `attachments/charts/`). It blocks `keyword_report`, `content` and `deliverable` notes that mention a tool failure.
+6. Call vault `export_pdfs` after every publish.
 
 **Tables first:** in every deliverable, put any set of comparable items (keywords, pages, issues, competitors, links, metrics, steps, checklists) in a markdown table instead of bullets. Use bullets only for a single short list with no attributes, and prose only for explanation. Escape `|` inside cells as `\|`, and use `<br>` for line breaks within a cell.
 
